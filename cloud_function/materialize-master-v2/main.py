@@ -16,7 +16,7 @@ from google.cloud import storage
 
 # -------------------- ENV --------------------
 BUCKET_NAME        = os.getenv("GCS_BUCKET")                      # REQUIRED
-STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured") # e.g., "structured"
+STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured-v2") # e.g., "structured"
 
 storage_client = storage.Client()
 
@@ -117,7 +117,7 @@ def materialize_http(request: Request):
                     latest_by_post[pid] = rec
 
         base = f"{STRUCTURED_PREFIX}/datasets"
-        final_key = f"{base}/listings_master.csv"
+        final_key = f"{base}/listings_master_v2.csv"
         rows = _write_csv(latest_by_post.values(), final_key)
 
         return jsonify({
