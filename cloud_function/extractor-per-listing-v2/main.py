@@ -125,15 +125,20 @@ def parse_listing(text: str) -> dict:
         except ValueError:
             pass
 
-   CAR_MAKES = [
+    CAR_MAKES = [
     "Toyota", "Honda", "Ford", "Chevrolet", "Nissan", "BMW", "Mercedes", "Kia",
     "Hyundai", "Volkswagen", "Subaru", "Mazda", "Jeep", "Ram", "GMC"
 ]
 
     MAKE_MODEL_RE = re.compile(
         r"\b(" + "|".join(CAR_MAKES) + r")\b\s+([A-Z][A-Za-z0-9]+)"
-)
+    )
 
+    mm = MAKE_MODEL_RE.search(text)
+    if mm:
+        d["make"] = mm.group(1)
+        d["model"] = mm.group(2)
+    
     mm = MAKE_MODEL_RE.search(text)
     if mm:
         d["make"] = mm.group(1)
