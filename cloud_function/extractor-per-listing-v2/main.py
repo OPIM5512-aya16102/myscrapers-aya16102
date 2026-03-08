@@ -138,11 +138,11 @@ def parse_listing(text: str) -> dict:
     if mm:
         d["make"] = mm.group(1)
         d["model"] = mm.group(2)
-    
-    mm = MAKE_MODEL_RE.search(text)
-    if mm:
-        d["make"] = mm.group(1)
-        d["model"] = mm.group(2)
+    else:
+        fallback = re.search(r"\b([A-Z][a-z]+)\s+([A-Z][A-Za-z0-9]+)", text)
+        if fallback:
+            d["make"] = fallback.group(1)
+            d["model"] = fallback.group(2)
 
     # mileage variants
     mi = None
