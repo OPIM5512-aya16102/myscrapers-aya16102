@@ -224,7 +224,7 @@ def extract_http(request: Request):
                 **fields,
             }
 
-            out_key = f"{STRUCTURED_PREFIX}/run_id={run_id}/jsonl/{post_id}.jsonl"
+            out_key = f"{STRUCTURED_PREFIX}/run_id={run_id}-v2/jsonl/{post_id}.jsonl"
 
             if not overwrite and bucket.blob(out_key).exists():
                 skipped += 1
