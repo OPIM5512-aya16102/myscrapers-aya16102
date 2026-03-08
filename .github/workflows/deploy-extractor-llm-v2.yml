@@ -16,7 +16,7 @@ permissions:
 env:
   PROJECT_ID: ${{ vars.PROJECT_ID }}
   REGION: ${{ vars.REGION }}
-  FUNCTION_NAME: extractor-llm-poc
+  FUNCTION_NAME: extractor-llm-poc-v2
   FUNCTION_DIR: cloud_function/extractor-llm-poc-v2
   ENTRY_POINT: llm_extract_http
   RUNTIME: python312
