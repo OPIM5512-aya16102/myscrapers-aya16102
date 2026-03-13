@@ -25,7 +25,7 @@ env:
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   SCHEDULE_BODY: ${{ vars.EXTRACTOR_BODY || '{"overwrite":true, "max_files":0}' }}
-  CRON_EXPR: "10 * * * *"   # :10 past each hour (America/New_York below)
+  CRON_EXPR: "12 * * * *"   # :10 past each hour (America/New_York below)
 
 jobs:
   deploy:
