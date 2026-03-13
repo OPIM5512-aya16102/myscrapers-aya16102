@@ -164,11 +164,11 @@ def parse_listing(text: str) -> dict:
         d["mileage"] = mi
 
     # Color of Vehicle
-    c1 = re.search(r"paint\s*color\s*[:=\-]?\s*([^\n\r]+)", text, re.I)
+    c1 = re.search(r"^paint\s*color\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["color"] = c1.group(1).strip() if c1 else None
     
     # Condition of Vehicle
-    cond = re.search(r"condition\s*[:=\-]?\s*([^\n\r]+)", text, re.I)
+    cond = re.search(r"^condition\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["condition"] = cond.group(1).strip() if cond else None
 
     # Transmission
