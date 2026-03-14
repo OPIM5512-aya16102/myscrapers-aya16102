@@ -21,24 +21,7 @@ import pandas as pd
 import re
 import io
 
-# Load Cities Dataset
-def load_city_map(bucket_name: str, blob_path: str):
-    """Load uscities.csv from GCS and build city->state map."""
-    bucket = storage_client.bucket(bucket_name)
-    blob = bucket.blob(blob_path)
-    content = blob.download_as_text()  # returns CSV content as string
-    df = pd.read_csv(io.StringIO(content))
-    
-    df["city_norm"] = df["city"].str.lower().str.strip()
-    
-    city_to_state = df.groupby("city_norm")["state_id"].apply(list).to_dict()
-    
-    # Precompile regex for city detection
-    city_patterns = sorted(city_to_state.keys(), key=len, reverse=True)
-    city_re = re.compile(r"\b(" + "|".join(map(re.escape, city_patterns)) + r")\b", re.IGNORECASE)
-    
-    return city_to_state, city_re
-CITY_TO_STATE, CITY_RE = load_city_map(BUCKET_NAME, "datasets/uscities.csv")
+
 
 # -------------------- ENV --------------------
 PROJECT_ID         = os.getenv("PROJECT_ID")
@@ -128,6 +111,26 @@ def _parse_run_id_as_iso(run_id: str) -> str:
         return dt.isoformat().replace("+00:00", "Z")
     except Exception:
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    
+
+# Load Cities Dataset
+def load_city_map(bucket_name: str, blob_path: str):
+    """Load uscities.csv from GCS and build city->state map."""
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(blob_path)
+    content = blob.download_as_text()  # returns CSV content as string
+    df = pd.read_csv(io.StringIO(content))
+    
+    df["city_norm"] = df["city"].str.lower().str.strip()
+    
+    city_to_state = df.groupby("city_norm")["state_id"].apply(list).to_dict()
+    
+    # Precompile regex for city detection
+    city_patterns = sorted(city_to_state.keys(), key=len, reverse=True)
+    city_re = re.compile(r"\b(" + "|".join(map(re.escape, city_patterns)) + r")\b", re.IGNORECASE)
+    
+    return city_to_state, city_re
+CITY_TO_STATE, CITY_RE = load_city_map(BUCKET_NAME, "datasets/uscities.csv")
 
 # -------------------- PARSE A LISTING --------------------
 def parse_listing(text: str) -> dict:
