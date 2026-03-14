@@ -116,7 +116,7 @@ def _parse_run_id_as_iso(run_id: str) -> str:
 # Load Cities Dataset
 def load_city_map(bucket_name: str, blob_path: str):
     """Load uscities.csv from GCS and build city->state map."""
-    bucket = storage_client.bucket(bucket_name)
+    bucket = storage_client.bucket(BUCKET_NAME)
     blob = bucket.blob(blob_name)
     content = blob.download_as_text()  # returns CSV content as string
     df = pd.read_csv(io.StringIO(content))
