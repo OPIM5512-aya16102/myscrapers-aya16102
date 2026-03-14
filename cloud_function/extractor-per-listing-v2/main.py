@@ -14,208 +14,122 @@ import logging
 import traceback
 from datetime import datetime, timezone
 
-from flask import Request, jsonify
-from google.api_core import retry as gax_retry
+from flask import Flask, Request, jsonify
 from google.cloud import storage
 import pandas as pd
-import re
-import io
 
+# -------------------- CONFIG --------------------
+PROJECT_ID        = os.getenv("PROJECT_ID")
+BUCKET_NAME       = os.getenv("GCS_BUCKET")                        # REQUIRED
+SCRAPES_PREFIX    = os.getenv("SCRAPES_PREFIX", "scrapes")
+STRUCTURED_PREFIX = os.getenv("STRUCTURED_PREFIX", "structured_v2")
 
-
-# -------------------- ENV --------------------
-PROJECT_ID         = os.getenv("PROJECT_ID")
-BUCKET_NAME        = os.getenv("GCS_BUCKET")                        # REQUIRED
-SCRAPES_PREFIX     = os.getenv("SCRAPES_PREFIX", "scrapes")         # input
-STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured_v2")   # output
-
-# Accept BOTH run id styles:
-RUN_ID_ISO_RE   = re.compile(r"^\d{8}T\d{6}Z$")  # 20251026T170002Z
-RUN_ID_PLAIN_RE = re.compile(r"^\d{14}$")        # 20251026170002
-
-READ_RETRY = gax_retry.Retry(
-    predicate=gax_retry.if_transient_error,
-    initial=1.0, maximum=10.0, multiplier=2.0, deadline=120.0
-)
-
+# -------------------- GLOBALS --------------------
 storage_client = storage.Client()
 
-# -------------------- SIMPLE REGEX EXTRACTORS --------------------
-PRICE_RE      = re.compile(r"\$\s?([0-9,]+)")
-YEAR_RE       = re.compile(r"\b(19|20)\d{2}\b")
-MAKE_MODEL_RE = re.compile(r"\b([A-Z][a-z]+)\s+([A-Z][A-Za-z0-9]+)")
+CITY_TO_STATE = {}
+CITY_RE = None
 
-# -------------------- HELPERS --------------------
-def _list_run_ids(bucket: str, scrapes_prefix: str) -> list[str]:
-    """
-    List run folders under gs://bucket/<scrapes_prefix>/ and return normalized run_ids.
-    Accept:
-      - <scrapes_prefix>/run_id=20251026T170002Z/
-      - <scrapes_prefix>/20251026170002/
-    """
-    it = storage_client.list_blobs(bucket, prefix=f"{scrapes_prefix}/", delimiter="/")
-    for _ in it:
-        pass  # populate it.prefixes
-
-    run_ids: list[str] = []
-    for pref in getattr(it, "prefixes", []):
-        # e.g., 'scrapes/run_id=20251026T170002Z/' OR 'scrapes/20251026170002/'
-        tail = pref.rstrip("/").split("/")[-1]
-        cand = tail.split("run_id=", 1)[1] if tail.startswith("run_id=") else tail
-        if RUN_ID_ISO_RE.match(cand) or RUN_ID_PLAIN_RE.match(cand):
-            run_ids.append(cand)
-    return sorted(run_ids)
-
-def _txt_objects_for_run(run_id: str) -> list[str]:
-    """
-    Return .txt object names for a given run_id.
-    Tries (in order) and returns the first non-empty list:
-      scrapes/run_id=<run_id>/txt/
-      scrapes/run_id=<run_id>/
-      scrapes/<run_id>/txt/
-      scrapes/<run_id>/
-    """
-    bucket = storage_client.bucket(BUCKET_NAME)
-    candidates = [
-        f"{SCRAPES_PREFIX}/run_id={run_id}/txt/",
-        f"{SCRAPES_PREFIX}/run_id={run_id}/",
-        f"{SCRAPES_PREFIX}/{run_id}/txt/",
-        f"{SCRAPES_PREFIX}/{run_id}/",
-    ]
-    for pref in candidates:
-        names = [b.name for b in bucket.list_blobs(prefix=pref) if b.name.endswith(".txt")]
-        if names:
-            return names
-    return []
-
-def _download_text(blob_name: str) -> str:
-    bucket = storage_client.bucket(BUCKET_NAME)
-    blob = bucket.blob(blob_name)
-    return blob.download_as_text(retry=READ_RETRY, timeout=120)
-
-def _upload_jsonl_line(blob_name: str, record: dict):
-    bucket = storage_client.bucket(BUCKET_NAME)
-    blob = bucket.blob(blob_name)
-    line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
-    blob.upload_from_string(line, content_type="application/x-ndjson")
-
-def _parse_run_id_as_iso(run_id: str) -> str:
-    """Normalize either run_id style to ISO8601 Z (fallback = now UTC)."""
+# Load cities CSV from GCS (once at container start)
+def load_city_map(bucket_name: str, csv_path: str):
+    global CITY_TO_STATE, CITY_RE
     try:
-        if RUN_ID_ISO_RE.match(run_id):
-            dt = datetime.strptime(run_id, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        elif RUN_ID_PLAIN_RE.match(run_id):
-            dt = datetime.strptime(run_id, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
-        else:
-            raise ValueError("unsupported run_id")
-        return dt.isoformat().replace("+00:00", "Z")
-    except Exception:
-        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(csv_path)
+        df = pd.read_csv(blob.download_as_text(), dtype=str)
+        df['city_lower'] = df['city'].str.lower()
+        CITY_TO_STATE = df.groupby('city_lower')['state_id'].apply(list).to_dict()
+        CITY_RE = re.compile(r'\b(' + '|'.join(df['city_lower'].unique()) + r')\b', re.I)
+        logging.info(f"Loaded {len(df)} cities from {csv_path}")
+    except Exception as e:
+        logging.error(f"Failed to load city CSV: {e}")
+        CITY_TO_STATE = {}
+        CITY_RE = None
 
-# Load Cities Dataset
-def load_city_map(bucket_name: str, blob_path: str):
-    """Load uscities.csv from GCS and build city->state map."""
-    bucket = storage_client.bucket(BUCKET_NAME)
-    blob = bucket.blob(blob_name)
-    content = blob.download_as_text()  # returns CSV content as string
-    df = pd.read_csv(io.StringIO(content))
-    
-    df["city_norm"] = df["city"].str.lower().str.strip()
-    
-    city_to_state = df.groupby("city_norm")["state_id"].apply(list).to_dict()
-    
-    # Precompile regex for city detection
-    city_patterns = sorted(city_to_state.keys(), key=len, reverse=True)
-    city_re = re.compile(r"\b(" + "|".join(map(re.escape, city_patterns)) + r")\b", re.IGNORECASE)
-    
-    return city_to_state, city_re
-CITY_TO_STATE, CITY_RE = load_city_map(BUCKET_NAME, "datasets/uscities.csv")
+# Load at container start
+load_city_map(BUCKET_NAME, "datasets/uscities.csv")
 
-# -------------------- PARSE A LISTING --------------------
+# -------------------- REGEX --------------------
+PRICE_RE = re.compile(r"\$\s?([\d,]+)")
+YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+CAR_MAKES = [
+    "Toyota", "Honda", "Ford", "Chevrolet", "Nissan", "BMW",
+    "Mercedes", "Kia", "Hyundai", "Volkswagen", "Subaru",
+    "Mazda", "Jeep", "Ram", "GMC"
+]
+MAKE_MODEL_RE = re.compile(r"\b(" + "|".join(CAR_MAKES) + r")\b\s+([A-Z][A-Za-z0-9]+)")
+
+# -------------------- PARSING FUNCTION --------------------
 def parse_listing(text: str) -> dict:
     d = {}
 
+    # PRICE
     m = PRICE_RE.search(text)
     if m:
-        try:
-            d["price"] = int(m.group(1).replace(",", ""))
-        except ValueError:
-            pass
+        try: d["price"] = int(m.group(1).replace(",", ""))
+        except: d["price"] = None
 
+    # YEAR
     y = YEAR_RE.search(text)
-    if y:
-        try:
-            d["year"] = int(y.group(0))
-        except ValueError:
-            pass
+    d["year"] = int(y.group(0)) if y else None
 
-    CAR_MAKES = [
-    "Toyota", "Honda", "Ford", "Chevrolet", "Nissan", "BMW", "Mercedes", "Kia",
-    "Hyundai", "Volkswagen", "Subaru", "Mazda", "Jeep", "Ram", "GMC"
-]
-
-    MAKE_MODEL_RE = re.compile(
-        r"\b(" + "|".join(CAR_MAKES) + r")\b\s+([A-Z][A-Za-z0-9]+)"
-    )
-
+    # MAKE / MODEL
     mm = MAKE_MODEL_RE.search(text)
     if mm:
         d["make"] = mm.group(1)
         d["model"] = mm.group(2)
     else:
-        fallback = re.search(r"\b([A-Z][a-z]+)\s+([A-Z][A-Za-z0-9]+)", text)
-        if fallback:
-            d["make"] = fallback.group(1)
-            d["model"] = fallback.group(2)
+        d["make"] = None
+        d["model"] = None
 
-    # mileage variants
-    mi = None
+    # MILEAGE
+    mileage = None
     m1 = re.search(r"(?:mileage|odometer)\s*[:\-]?\s*([\d,]+)", text, re.I)
     if m1:
-        try: mi = int(m1.group(1).replace(",", ""))
-        except ValueError: mi = None
-    if mi is None:
+        try: mileage = int(m1.group(1).replace(",", ""))
+        except: pass
+    if mileage is None:
         m2 = re.search(r"(\d+(?:\.\d+)?)\s*k\s*(?:mi|mile|miles)\b", text, re.I)
         if m2:
-            try: mi = int(float(m2.group(1)) * 1000)
-            except ValueError: mi = None
-    if mi is None:
+            try: mileage = int(float(m2.group(1)) * 1000)
+            except: pass
+    if mileage is None:
         m3 = re.search(r"(\d{1,3}(?:[,\d]{3})*)\s*(?:mi|mile|miles)\b", text, re.I)
         if m3:
-            try: mi = int(re.sub(r"[^\d]", "", m3.group(1)))
-            except ValueError: mi = None
-    if mi is not None:
-        d["mileage"] = mi
+            try: mileage = int(re.sub(r"[^\d]", "", m3.group(1)))
+            except: pass
+    d["mileage"] = mileage
 
-    # Color of Vehicle
-    c1 = re.search(r"^\s*paint\s*color\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
-    d["color"] = c1.group(1).strip() if c1 else None
-    
-    # Condition of Vehicle
-    cond = re.search(r"^\s*condition\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
-    d["condition"] = cond.group(1).strip() if cond else None
+    # COLOR
+    color_m = re.search(r"^\s*paint\s*color\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    d["color"] = color_m.group(1).strip() if color_m else None
 
-    # Transmission
-    trans = re.search(r"^\s*transmission\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
-    d["transmission"] = trans.group(1).strip() if trans else None
+    # CONDITION
+    cond_m = re.search(r"^\s*condition\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    d["condition"] = cond_m.group(1).strip() if cond_m else None
 
-    # Fuel
-    fuel = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
-    d["fuel"] = fuel.group(1).strip() if fuel else None
+    # TRANSMISSION
+    trans_m = re.search(r"^\s*transmission\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    d["transmission"] = trans_m.group(1).strip() if trans_m else None
 
-    # Location
-    LOCATION_RE = re.compile(
-        r"\(\s*(?P<city>[A-Za-z .'-]+?)\s*,\s*(?P<state>[A-Z]{2})(?:\s+(?P<zip>\d{5}))?\s*\)",
-        re.I | re.M
-    )
-    
-    loc_match = LOCATION_RE.search(text)
+    # FUEL
+    fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
+
+    # LOCATION
+    d["city"] = None
+    d["state"] = None
+    d["zipcode"] = None
+
+    # 1. Try (City, ST [ZIP])
+    loc_re = re.compile(r"\(\s*(?P<city>[A-Za-z .'-]+?)\s*,\s*(?P<state>[A-Z]{2})(?:\s+(?P<zip>\d{5}))?\s*\)", re.I)
+    loc_match = loc_re.search(text)
     if loc_match:
         d["city"] = loc_match.group("city").title()
-        d["state"] = loc_match.group("state")
+        d["state"] = loc_match.group("state").upper()
         d["zipcode"] = loc_match.group("zip")
-    else:
+    elif CITY_RE:
+        # 2. Fallback: city from CSV
         text_lower = text.lower()
         m = CITY_RE.search(text_lower)
         if m:
@@ -225,54 +139,59 @@ def parse_listing(text: str) -> dict:
             if states:
                 d["state"] = states[0]
 
-        # optional: scan for ZIP codes anywhere in text
-        ZIP_RE = re.compile(r"\b\d{5}\b")
-        zip_match = ZIP_RE.search(text)
-        if zip_match:
-            d["zipcode"] = zip_match.group()
+        # 3. ZIP anywhere in text
+        zip_m = re.search(r"\b\d{5}\b", text)
+        if zip_m:
+            d["zipcode"] = zip_m.group()
 
     return d
 
-# -------------------- HTTP ENTRY --------------------
+# -------------------- HELPERS --------------------
+def _download_text(blob_name: str) -> str:
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(blob_name)
+    return blob.download_as_text()
+
+def _upload_jsonl_line(blob_name: str, record: dict):
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(blob_name)
+    line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+    blob.upload_from_string(line, content_type="application/x-ndjson")
+
+# -------------------- CLOUD FUNCTION ENTRY --------------------
 def extract_http(request: Request):
     """
-    Reads latest (or requested) run's TXT listings and writes ONE-LINE JSON records to:
-      gs://<bucket>/<STRUCTURED_PREFIX>/run_id=<run_id>/jsonl/<post_id>.jsonl
-    Request JSON (optional):
-      { "run_id": "<...>", "max_files": 0, "overwrite": false }
+    HTTP-triggered Cloud Function.
+    Expects optional JSON body: {"run_id": "...", "max_files": 0, "overwrite": false}
     """
     logging.getLogger().setLevel(logging.INFO)
+
+    try:
+        body = request.get_json(silent=True) or {}
+    except:
+        body = {}
+
+    run_id    = body.get("run_id")
+    max_files = int(body.get("max_files") or 0)
+    overwrite = bool(body.get("overwrite") or False)
 
     if not BUCKET_NAME:
         return jsonify({"ok": False, "error": "missing GCS_BUCKET env"}), 500
 
-    try:
-        body = request.get_json(silent=True) or {}
-    except Exception:
-        body = {}
-
-    run_id    = body.get("run_id")
-    max_files = int(body.get("max_files") or 0)        # 0 = unlimited
-    overwrite = bool(body.get("overwrite") or False)
-
-    # Pick newest run if not provided
+    # Determine run_id
     if not run_id:
-        runs = _list_run_ids(BUCKET_NAME, SCRAPES_PREFIX)
-        if not runs:
-            return jsonify({"ok": False, "error": f"no run_ids found under {SCRAPES_PREFIX}/"}), 200
-        run_id = runs[-1]
+        # fallback to latest run
+        runs = sorted([b.name.split("/")[-2] for b in storage_client.list_blobs(BUCKET_NAME, prefix=f"{SCRAPES_PREFIX}/") if b.name.endswith(".txt")])
+        run_id = runs[-1] if runs else None
+        if not run_id:
+            return jsonify({"ok": False, "error": "no run_id found"}), 200
 
-    scraped_at_iso = _parse_run_id_as_iso(run_id)
-
-    txt_blobs = _txt_objects_for_run(run_id)
-    if not txt_blobs:
-        return jsonify({"ok": False, "run_id": run_id, "error": "no .txt files found for run"}), 200
+    # List .txt files for run
+    txt_blobs = [b.name for b in storage_client.list_blobs(BUCKET_NAME, prefix=f"{SCRAPES_PREFIX}/{run_id}/") if b.name.endswith(".txt")]
     if max_files > 0:
         txt_blobs = txt_blobs[:max_files]
 
     processed = written = skipped = errors = 0
-    bucket = storage_client.bucket(BUCKET_NAME)
-
     for name in txt_blobs:
         try:
             text = _download_text(name)
@@ -282,14 +201,13 @@ def extract_http(request: Request):
             record = {
                 "post_id": post_id,
                 "run_id": run_id,
-                "scraped_at": scraped_at_iso,
                 "source_txt": name,
                 **fields,
             }
 
             out_key = f"{STRUCTURED_PREFIX}/run_id={run_id}/jsonl/{post_id}.jsonl"
 
-            if not overwrite and bucket.blob(out_key).exists():
+            if not overwrite and storage_client.bucket(BUCKET_NAME).blob(out_key).exists():
                 skipped += 1
             else:
                 _upload_jsonl_line(out_key, record)
@@ -301,14 +219,21 @@ def extract_http(request: Request):
 
         processed += 1
 
-    result = {
+    return jsonify({
         "ok": True,
-        "version": "extractor-v3-jsonl-flex",
         "run_id": run_id,
         "processed_txt": processed,
         "written_jsonl": written,
         "skipped_existing": skipped,
         "errors": errors
-    }
-    logging.info(json.dumps(result))
-    return jsonify(result), 200
+    }), 200
+
+# -------------------- LOCAL TEST (Optional) --------------------
+if __name__ == "__main__":
+    # Local folder test
+    TEST_FOLDER = "data/listings"
+    if os.path.exists(TEST_FOLDER):
+        for f in os.listdir(TEST_FOLDER):
+            if f.endswith(".txt"):
+                with open(os.path.join(TEST_FOLDER, f), "r", encoding="utf-8") as fh:
+                    print(parse_listing(fh.read()))
