@@ -179,8 +179,12 @@ def parse_listing(text: str) -> dict:
     fuel = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel.group(1).strip() if fuel else None
 
-
-
+    # Location
+    LOCATION_RE = re.compile(r"\((?P<city>[A-Za-z\s]+),\s*(?P<state>[A-Z]{2})(?:\s+(?P<zip>\d{5}))?\)")
+    loc_match = LOCATION_RE.search(text)
+    if loc_match:
+        d["state"] = loc_match.group("state") if loc_match else None
+        d["zipcode"] = loc_match.group("zip") if loc_match else None
 
     return d
 
