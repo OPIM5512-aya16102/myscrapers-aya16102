@@ -210,7 +210,7 @@ def parse_listing(text: str) -> dict:
         re.I | re.M
     )
     
-    loc_match = LOCATION_RE.search(r"^\s*transmission\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    loc_match = LOCATION_RE.search(text)
     if loc_match:
         d["city"] = loc_match.group("city").title()
         d["state"] = loc_match.group("state")
