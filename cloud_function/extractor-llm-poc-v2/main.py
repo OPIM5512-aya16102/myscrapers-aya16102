@@ -241,6 +241,9 @@ def _vertex_extract_fields(raw_text: str) -> dict:
     parsed["condition"] = _norm_str(parsed.get("condition"))
     parsed["transmission"] = _norm_str(parsed.get("transmission"))
     parsed["fuel"] = _norm_str(parsed.get("fuel"))
+    parsed["city"] = _norm_str(parsed.get("city"))
+    parsed["state"] = _norm_str(parsed.get("state"))
+    parsed["zipcode"] = _norm_str(parsed.get("zipcode"))
 
     return parsed
 
