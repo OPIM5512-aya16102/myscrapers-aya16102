@@ -16,7 +16,7 @@ from google.cloud import storage
 
 # -------------------- ENV --------------------
 BUCKET_NAME        = os.getenv("GCS_BUCKET")                      # REQUIRED
-STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured") # e.g., "structured"
+STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured_v2") # e.g., "structured"
 
 storage_client = storage.Client()
 

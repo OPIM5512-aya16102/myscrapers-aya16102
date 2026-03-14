@@ -22,7 +22,7 @@ from google.cloud import storage
 PROJECT_ID         = os.getenv("PROJECT_ID")
 BUCKET_NAME        = os.getenv("GCS_BUCKET")                        # REQUIRED
 SCRAPES_PREFIX     = os.getenv("SCRAPES_PREFIX", "scrapes")         # input
-STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured")   # output
+STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured_v2")   # output
 
 # Accept BOTH run id styles:
 RUN_ID_ISO_RE   = re.compile(r"^\d{8}T\d{6}Z$")  # 20251026T170002Z
