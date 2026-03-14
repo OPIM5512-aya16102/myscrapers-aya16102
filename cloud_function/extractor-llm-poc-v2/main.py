@@ -31,7 +31,7 @@ from google.api_core.exceptions import ResourceExhausted, InternalServerError, A
 PROJECT_ID           = os.getenv("PROJECT_ID", "")
 REGION               = os.getenv("REGION", "us-central1")
 BUCKET_NAME          = os.getenv("GCS_BUCKET", "")
-STRUCTURED_PREFIX    = os.getenv("STRUCTURED_PREFIX", "structured")
+STRUCTURED_PREFIX    = os.getenv("STRUCTURED_PREFIX", "structured_v2")
 LLM_PROVIDER         = os.getenv("LLM_PROVIDER", "vertex").lower()
 LLM_MODEL            = os.getenv("LLM_MODEL", "gemini-2.5-flash")
 OVERWRITE_DEFAULT    = os.getenv("OVERWRITE", "false").lower() == "true"
