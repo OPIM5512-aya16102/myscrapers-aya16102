@@ -1,10 +1,10 @@
 google-cloud-storage>=2.10.0
 functions-framework>=3.5.0
 # Web framework for the HTTP function
-Flask==3.1.3
+Flask>=3.1.3
 
 # Pandas for handling the cities dataset
-pandas==2.1.1
+pandas>=2.1.1
 
 # Optional: for robust retry support (already used via google-cloud-core)
-google-api-core==2.13.2
+google-api-core>=2.13.2
