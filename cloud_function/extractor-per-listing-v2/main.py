@@ -17,6 +17,28 @@ from datetime import datetime, timezone
 from flask import Request, jsonify
 from google.api_core import retry as gax_retry
 from google.cloud import storage
+import pandas as pd
+import re
+import io
+
+# Load Cities Dataset
+def load_city_map(bucket_name: str, blob_path: str):
+    """Load uscities.csv from GCS and build city->state map."""
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(blob_path)
+    content = blob.download_as_text()  # returns CSV content as string
+    df = pd.read_csv(io.StringIO(content))
+    
+    df["city_norm"] = df["city"].str.lower().str.strip()
+    
+    city_to_state = df.groupby("city_norm")["state_id"].apply(list).to_dict()
+    
+    # Precompile regex for city detection
+    city_patterns = sorted(city_to_state.keys(), key=len, reverse=True)
+    city_re = re.compile(r"\b(" + "|".join(map(re.escape, city_patterns)) + r")\b", re.IGNORECASE)
+    
+    return city_to_state, city_re
+CITY_TO_STATE, CITY_RE = load_city_map(BUCKET_NAME, "datasets/uscities.csv")
 
 # -------------------- ENV --------------------
 PROJECT_ID         = os.getenv("PROJECT_ID")
@@ -180,12 +202,30 @@ def parse_listing(text: str) -> dict:
     d["fuel"] = fuel.group(1).strip() if fuel else None
 
     # Location
-    LOCATION_RE = re.compile(r"\(\s*(?P<city>[A-Za-z .'-]+?)\s*,\s*(?P<state>[A-Z]{2})(?:\s+(?P<zip>\d{5}))?\s*\)"
-, re.I | re.M)
+    LOCATION_RE = re.compile(
+        r"\(\s*(?P<city>[A-Za-z .'-]+?)\s*,\s*(?P<state>[A-Z]{2})(?:\s+(?P<zip>\d{5}))?\s*\)",
+        re.I | re.M
+    )
     loc_match = LOCATION_RE.search(text)
     if loc_match:
-        d["state"] = loc_match.group("state") if loc_match else None
-        d["zipcode"] = loc_match.group("zip") if loc_match else None
+        d["city"] = loc_match.group("city").title()
+        d["state"] = loc_match.group("state")
+        d["zipcode"] = loc_match.group("zip")
+    else:
+        text_lower = text.lower()
+        m = CITY_RE.search(text_lower)
+        if m:
+            city_norm = m.group(1).lower()
+            d["city"] = city_norm.title()
+            states = CITY_TO_STATE.get(city_norm)
+            if states:
+                d["state"] = states[0]
+
+        # optional: scan for ZIP codes anywhere in text
+        ZIP_RE = re.compile(r"\b\d{5}\b")
+        zip_match = ZIP_RE.search(text)
+        if zip_match:
+            d["zipcode"] = zip_match.group()
 
     return d
 
