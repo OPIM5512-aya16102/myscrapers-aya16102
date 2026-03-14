@@ -173,8 +173,11 @@ def _vertex_extract_fields(raw_text: str) -> dict:
             "condition": {"type": "string", "nullable": True},
             "transmission": {"type": "string", "nullable": True},
             "fuel": {"type": "string", "nullable": True},
+            "city": {"type": "string", "nullable": True},
+            "state": {"type": "string", "nullable": True},
+            "zipcode": {"type": "string", "nullable": True}
         },
-        "required": ["price", "year", "make", "model", "mileage", "color", "condition", "transmission", "fuel"]
+        "required": ["price", "year", "make", "model", "mileage", "color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
     }
 
     # System instruction (will be prepended to the prompt)
