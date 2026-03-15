@@ -18,13 +18,26 @@ from flask import Flask, Request, jsonify
 from google.cloud import storage
 import pandas as pd
 
+# -------------------- ENV --------------------
+PROJECT_ID         = os.getenv("PROJECT_ID")
+BUCKET_NAME        = os.getenv("GCS_BUCKET")                        # REQUIRED
+SCRAPES_PREFIX     = os.getenv("SCRAPES_PREFIX", "scrapes")         # input
+STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured")   # output
 # -------------------- CONFIG --------------------
 PROJECT_ID        = os.getenv("PROJECT_ID")
 BUCKET_NAME       = os.getenv("GCS_BUCKET")                        # REQUIRED
 SCRAPES_PREFIX    = os.getenv("SCRAPES_PREFIX", "scrapes")
 STRUCTURED_PREFIX = os.getenv("STRUCTURED_PREFIX", "structured_v2")
 
-# -------------------- GLOBALS --------------------
+# Accept BOTH run id styles:
+RUN_ID_ISO_RE   = re.compile(r"^\d{8}T\d{6}Z$")  # 20251026T170002Z
+RUN_ID_PLAIN_RE = re.compile(r"^\d{14}$")        # 20251026170002
+
+READ_RETRY = gax_retry.Retry(
+    predicate=gax_retry.if_transient_error,
+    initial=1.0, maximum=10.0, multiplier=2.0, deadline=120.0
+)
+
 storage_client = storage.Client()
 
 # -------------------- REGEX --------------------
