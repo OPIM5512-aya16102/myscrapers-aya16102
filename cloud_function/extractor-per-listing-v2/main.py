@@ -18,11 +18,6 @@ from flask import Flask, Request, jsonify
 from google.cloud import storage
 import pandas as pd
 
-# -------------------- ENV --------------------
-PROJECT_ID         = os.getenv("PROJECT_ID")
-BUCKET_NAME        = os.getenv("GCS_BUCKET")                        # REQUIRED
-SCRAPES_PREFIX     = os.getenv("SCRAPES_PREFIX", "scrapes")         # input
-STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured")   # output
 # -------------------- CONFIG --------------------
 PROJECT_ID        = os.getenv("PROJECT_ID")
 BUCKET_NAME       = os.getenv("GCS_BUCKET")                        # REQUIRED
