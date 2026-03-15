@@ -94,15 +94,49 @@ def parse_listing(text: str) -> dict:
     fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
 
-    city_m = re.search(r"^\s*city\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
-    d["city"] = city_m.group(1).strip() if city_m else None
+    LOCATION_TITLE_RE = re.compile(
+        r"-\s*([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*-",
+        re.I
+    )
 
-    state_m = re.search(r"^\s*state\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
-    d["state"] = state_m.group(1).strip() if state_m else None
+    LOCATION_PAREN_RE = re.compile(
+        r"\(([A-Za-z .'-]+)\)",
+        re.I
+    )
 
-    zipcode_m = re.search(r"^\s*zip\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
-    d["zipcode"] = zipcode_m.group(1).strip() if zipcode_m else None
+    LOCATION_CITY_STATE_RE = re.compile(
+        r"\b([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?",
+        re.I
+    )
+    # LOCATION
+    city = None
+    state = None
+    zipcode = None
 
+    # Pattern 1: Craigslist title format
+    m = LOCATION_TITLE_RE.search(text)
+    if m:
+        city = m.group(1).strip()
+        state = m.group(2).upper()
+        zipcode = m.group(3)
+
+    # Pattern 2: Parentheses location
+    if city is None:
+        m = LOCATION_PAREN_RE.search(text)
+        if m:
+            city = m.group(1).strip().title()
+
+    # Pattern 3: Generic City, ST
+    if city is None:
+        m = LOCATION_CITY_STATE_RE.search(text)
+        if m:
+            city = m.group(1).strip()
+            state = m.group(2).upper()
+            zipcode = m.group(3)
+
+    d["city"] = city
+    d["state"] = state
+    d["zipcode"] = zipcode
 
     return d
 
