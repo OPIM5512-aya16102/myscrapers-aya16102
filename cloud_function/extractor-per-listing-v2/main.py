@@ -196,23 +196,16 @@ def parse_listing(text: str) -> dict:
             zipcode = m.group(3)
 
     # LAT/LON extraction (temporary)
-    lat_match = LAT_RE.search(text)
-    lon_match = LON_RE.search(text)
-    lat = float(lat_match.group(1)) if lat_match else None
-    lon = float(lon_match.group(1)) if lon_match else None
-
-    # Reverse geocode if coordinates exist
+    lat, lon = extract_location_from_meta(text)
     if lat and lon:
-        geo_info = reverse_geocode(lat, lon)  # can use geopy or Google API
-        d["city"] = geo_info["city"]
-        d["state"] = geo_info["state"]
-        d["zipcode"] = geo_info["zipcode"]
-    else:
-        # fallback: extract from text
-        city, state, zipcode = extract_from_text(text)
-        d["city"] = city
-        d["state"] = state
-        d["zipcode"] = zipcode
+        from geopy.geocoders import Nominatim
+        geolocator = Nominatim(user_agent="craigslist_scraper")
+        location = geolocator.reverse((lat, lon), exactly_one=True)
+        if location and location.raw.get("address"):
+            addr = location.raw["address"]
+            d["zipcode"] = addr.get("postcode")
+            d["city"] = addr.get("city") or addr.get("town") or addr.get("village")
+            d["state"] = addr.get("state")
   
     return d
 
