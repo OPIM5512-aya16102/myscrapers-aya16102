@@ -64,6 +64,36 @@ LOCATION_CITY_STATE_RE = re.compile(
         re.I
     )
 
+LAT_RE = re.compile(r"latitude:\s*([\-0-9\.]+)", re.I)
+LON_RE = re.compile(r"longitude:\s*([\-0-9\.]+)", re.I)
+
+
+#
+
+import csv
+
+zip_lookup = {}
+
+def load_zip_lookup():
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(f"{STRUCTURED_PREFIX}/datasets/us_zips.csv")
+
+    data = blob.download_as_text()
+    
+    reader = csv.DictReader(data.splitlines())
+    lookup = {}
+    
+    for row in reader:
+        lookup[row["zip"]] = {
+            "city": row["city"],
+            "state": row["state"]
+        }
+    
+    return lookup
+
+
+zip_lookup = load_zip_lookup()
+
 # -------------------- PARSING FUNCTION --------------------
 def parse_listing(text: str) -> dict:
     d = {}
@@ -126,20 +156,20 @@ def parse_listing(text: str) -> dict:
     state = None
     zipcode = None
 
-    # Pattern 1: Craigslist title format
+    # Pattern 1: Craigslist title
     m = LOCATION_TITLE_RE.search(text)
     if m:
         city = m.group(1).strip()
         state = m.group(2).upper()
         zipcode = m.group(3)
 
-    # Pattern 2: Parentheses location
+    # Pattern 2: Parentheses
     if city is None:
         m = LOCATION_PAREN_RE.search(text)
         if m:
             city = m.group(1).strip().title()
 
-    # Pattern 3: Generic City, ST
+    # Pattern 3: generic city/state
     if city is None:
         m = LOCATION_CITY_STATE_RE.search(text)
         if m:
@@ -147,10 +177,15 @@ def parse_listing(text: str) -> dict:
             state = m.group(2).upper()
             zipcode = m.group(3)
 
+# ZIP lookup override
+    if zipcode and zipcode in zip_lookup:
+        city = zip_lookup[zipcode]["city"]
+        state = zip_lookup[zipcode]["state"]
+
     d["city"] = city
     d["state"] = state
     d["zipcode"] = zipcode
-
+  
     return d
 
 # -------------------- HELPERS --------------------
@@ -164,6 +199,8 @@ def _upload_jsonl_line(blob_name: str, record: dict):
     blob = bucket.blob(blob_name)
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
     blob.upload_from_string(line, content_type="application/x-ndjson")
+
+
 
 # -------------------- CLOUD FUNCTION ENTRY --------------------
 def extract_http(request: Request):

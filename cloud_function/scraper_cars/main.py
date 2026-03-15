@@ -101,6 +101,19 @@ def _upload_csv(bucket: str, object_name: str, rows: List[dict], header: List[st
     w.writerows(rows)
     storage.Client().bucket(bucket).blob(object_name)\
         .upload_from_string(buf.getvalue(), content_type="text/csv")
+    
+def _extract_lat_lon(html: str):
+    soup = BeautifulSoup(html, "html.parser")
+    map_div = soup.find("div", {"id": "map"})
+
+    if map_div:
+        lat = map_div.get("data-latitude")
+        lon = map_div.get("data-longitude")
+
+        if lat and lon:
+            return float(lat), float(lon)
+
+    return None, None
 
 # -- Entry point ----------------------------------------------------------------
 
@@ -144,10 +157,18 @@ def entrypoint(request: Request):
         try:
             r = requests.get(u, headers=HDRS, timeout=25)
             r.raise_for_status()
-            text = _visible_text_from_html(r.text)
+            html = r.text
+            lat, lon = _extract_lat_lon(html)
+            text =_visible_text_from_html(html)
             obj = f"{run_prefix}/{pid}.txt"
             _upload_text(BUCKET_NAME, obj, text)
-            index_rows.append({"post_id": pid, "url": u, "object": obj})
+            index_rows.append({
+        "post_id": pid,
+        "url": u,
+        "object": obj,
+        "latitude": lat,
+        "longitude": lon
+                            })
             if i < len(urls):
                 time.sleep(DELAY_SECS)
         except Exception as e:
