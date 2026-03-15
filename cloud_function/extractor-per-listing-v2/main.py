@@ -30,22 +30,6 @@ storage_client = storage.Client()
 CITY_TO_STATE = {}
 CITY_RE = None
 
-# Load cities CSV from GCS (once at container start)
-def load_city_map(bucket_name: str, csv_path: str):
-    global CITY_TO_STATE, CITY_RE
-    try:
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(csv_path)
-        df = pd.read_csv(blob.download_as_text(), dtype=str)
-        df['city_lower'] = df['city'].str.lower()
-        CITY_TO_STATE = df.groupby('city_lower')['state_id'].apply(list).to_dict()
-        CITY_RE = re.compile(r'\b(' + '|'.join(df['city_lower'].unique()) + r')\b', re.I)
-        logging.info(f"Loaded {len(df)} cities from {csv_path}")
-    except Exception as e:
-        logging.error(f"Failed to load city CSV: {e}")
-        CITY_TO_STATE = {}
-        CITY_RE = None
-
 # Load at container start
 load_city_map(BUCKET_NAME, "datasets/uscities.csv")
 
@@ -116,33 +100,15 @@ def parse_listing(text: str) -> dict:
     fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
 
-    # LOCATION
-    d["city"] = None
-    d["state"] = None
-    d["zipcode"] = None
+    city_m = re.search(r"^\s*city\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    d["city"] = city_m.group(1).strip() if city_m else None
 
-    # 1. Try (City, ST [ZIP])
-    loc_re = re.compile(r"\(\s*(?P<city>[A-Za-z .'-]+?)\s*,\s*(?P<state>[A-Z]{2})(?:\s+(?P<zip>\d{5}))?\s*\)", re.I)
-    loc_match = loc_re.search(text)
-    if loc_match:
-        d["city"] = loc_match.group("city").title()
-        d["state"] = loc_match.group("state").upper()
-        d["zipcode"] = loc_match.group("zip")
-    elif CITY_RE:
-        # 2. Fallback: city from CSV
-        text_lower = text.lower()
-        m = CITY_RE.search(text_lower)
-        if m:
-            city_norm = m.group(1).lower()
-            d["city"] = city_norm.title()
-            states = CITY_TO_STATE.get(city_norm)
-            if states:
-                d["state"] = states[0]
+    state_m = re.search(r"^\s*state\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    d["state"] = state_m.group(1).strip() if state_m else None
 
-        # 3. ZIP anywhere in text
-        zip_m = re.search(r"\b\d{5}\b", text)
-        if zip_m:
-            d["zipcode"] = zip_m.group()
+    zipcode_m = re.search(r"^\s*zip\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
+    d["zipcode"] = zipcode_m.group(1).strip() if zipcode_m else None
+
 
     return d
 
