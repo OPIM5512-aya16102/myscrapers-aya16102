@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from flask import Flask, Request, jsonify
 from google.cloud import storage
 import pandas as pd
+from google.api_core import retry as gax_retry
 
 # -------------------- CONFIG --------------------
 PROJECT_ID        = os.getenv("PROJECT_ID")
@@ -43,7 +44,25 @@ CAR_MAKES = [
     "Mercedes", "Kia", "Hyundai", "Volkswagen", "Subaru",
     "Mazda", "Jeep", "Ram", "GMC"
 ]
-MAKE_MODEL_RE = re.compile(r"\b(" + "|".join(CAR_MAKES) + r")\b\s+([A-Z][A-Za-z0-9]+)")
+MAKE_MODEL_RE = re.compile(
+    r"\b(" + "|".join(CAR_MAKES) + r")\b\s+([A-Za-z0-9\-]+)",
+    re.I
+)
+
+LOCATION_TITLE_RE = re.compile(
+        r"-\s*([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*-",
+        re.I
+    )
+
+LOCATION_PAREN_RE = re.compile(
+        r"\(([A-Za-z .'-]+)\)",
+        re.I
+    )
+
+LOCATION_CITY_STATE_RE = re.compile(
+        r"\b([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?",
+        re.I
+    )
 
 # -------------------- PARSING FUNCTION --------------------
 def parse_listing(text: str) -> dict:
@@ -102,20 +121,6 @@ def parse_listing(text: str) -> dict:
     fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
 
-    LOCATION_TITLE_RE = re.compile(
-        r"-\s*([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*-",
-        re.I
-    )
-
-    LOCATION_PAREN_RE = re.compile(
-        r"\(([A-Za-z .'-]+)\)",
-        re.I
-    )
-
-    LOCATION_CITY_STATE_RE = re.compile(
-        r"\b([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?",
-        re.I
-    )
     # LOCATION
     city = None
     state = None
