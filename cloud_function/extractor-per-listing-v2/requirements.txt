@@ -5,3 +5,5 @@ pandas>=2.1.1
 
 # Optional: for robust retry support (already used via google-cloud-core)
 google-api-core>=2.13.2
+
+geopy>=2.3.0
