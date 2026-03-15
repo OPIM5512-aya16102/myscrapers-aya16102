@@ -102,29 +102,32 @@ def reverse_geocode(lat, lon):
     return location_cache[key]
 
 
+import re
 import csv
+from scipy.spatial import cKDTree
 
-zip_lookup = {}
+# -------------------- LOAD ZIP DATA --------------------
+zip_coords = []
+zip_data = []
 
-def load_zip_lookup():
-    try:
-        bucket = storage_client.bucket(BUCKET_NAME)
-        blob = bucket.blob(f"{STRUCTURED_PREFIX}/datasets/us_zips.csv")
-        data = blob.download_as_text()
-        reader = csv.DictReader(data.splitlines())
-        return {row["zip"]: {"city": row["city"], "state": row["state"]} for row in reader}
-    except Exception as e:
-        logging.error(f"Failed to load ZIP lookup: {e}")
-        return {}
+with open("datasets/us_zips.csv") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        try:
+            lat, lon = float(row["lat"]), float(row["lng"])
+            zip_coords.append((lat, lon))
+            zip_data.append({"zip": row["zip"], "city": row["city"], "state": row["state"]})
+        except:
+            continue
 
+# Build fast KD-tree for nearest-neighbor lookup
+tree = cKDTree(zip_coords)
 
-zip_lookup = None
-
-def get_zip_lookup():
-    global zip_lookup
-    if zip_lookup is None:
-        zip_lookup = load_zip_lookup()
-    return zip_lookup
+def latlon_to_zip(lat, lon):
+    if lat is None or lon is None:
+        return {"zipcode": None, "city": None, "state": None}
+    _, idx = tree.query((lat, lon))
+    return zip_data[idx]
 
 
 def extract_lat_lon_from_meta(text: str):
@@ -206,51 +209,39 @@ def parse_listing(text: str) -> dict:
     fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
 
-        # ------------------- LOCATION -------------------
-    city = None
-    state = None
-    zipcode = None
+    # -------------------- LOCATION --------------------
+    city = state = zipcode = None
 
-    # Pattern 1: Craigslist title
-    m = LOCATION_TITLE_RE.search(text)
+    # 1️⃣ Craigslist title pattern
+    m = re.search(r"-\s*([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*-", text, re.I)
     if m:
-        city = m.group(1).strip()
-        state = m.group(2).upper()
-        zipcode = m.group(3)
+        city, state, zipcode = m.group(1).strip(), m.group(2).upper(), m.group(3)
 
-    # Pattern 2: Parentheses
-    if city is None:
-        m = LOCATION_PAREN_RE.search(text)
+    # 2️⃣ Parentheses pattern
+    if not city:
+        m = re.search(r"\(([A-Za-z .'-]+)\)", text, re.I)
         if m:
             city = m.group(1).strip().title()
 
-    # Pattern 3: generic city/state
-    if city is None:
-        m = LOCATION_CITY_STATE_RE.search(text)
+    # 3️⃣ Generic city, state
+    if not city:
+        m = re.search(r"\b([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?", text, re.I)
         if m:
-            city = m.group(1).strip()
-            state = m.group(2).upper()
-            zipcode = m.group(3)
+            city, state, zipcode = m.group(1).strip(), m.group(2).upper(), m.group(3)
 
-    # ZIP CSV lookup overrides regex if available
-    if zipcode:
-        z_lookup = get_zip_lookup()
-        if zipcode in z_lookup:
-            city = z_lookup[zipcode]["city"]
-            state = z_lookup[zipcode]["state"]
-
-    # If no zipcode / city / state yet, try meta-based lat/lon
-    if not city or not state or not zipcode:
-        lat, lon = extract_location_from_meta(text)
-        if lat and lon:
-            info = reverse_geocode(lat, lon)
-            city = city or info["city"]
-            state = state or info["state"]
-            zipcode = zipcode or info["zipcode"]
+    # 4️⃣ Meta tag geolocation (lat/lon) → ZIP/city/state
+    geo_m = re.search(r'<meta\s+name=["\']geo\.position["\']\s+content=["\']([\d\.\-]+);([\d\.\-]+)["\']', text, re.I)
+    if geo_m:
+        lat, lon = float(geo_m.group(1)), float(geo_m.group(2))
+        loc = latlon_to_zip(lat, lon)
+        city = loc["city"]
+        state = loc["state"]
+        zipcode = loc["zip"]
 
     d["city"] = city
     d["state"] = state
     d["zipcode"] = zipcode
+
   
     return d
 
