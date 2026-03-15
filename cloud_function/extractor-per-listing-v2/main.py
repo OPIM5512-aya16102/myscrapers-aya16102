@@ -69,6 +69,24 @@ LON_RE = re.compile(r"longitude:\s*([\-0-9\.]+)", re.I)
 
 
 #
+from geopy.geocoders import Nominatim
+
+geolocator = Nominatim(user_agent="craigslist_scraper")
+
+def reverse_geocode(lat, lon):
+    try:
+        location = geolocator.reverse((lat, lon), exactly_one=True, addressdetails=True)
+        if location and "address" in location.raw:
+            addr = location.raw["address"]
+            return {
+                "city": addr.get("city") or addr.get("town") or addr.get("village"),
+                "state": addr.get("state"),
+                "zipcode": addr.get("postcode")
+            }
+    except:
+        pass
+    return {"city": None, "state": None, "zipcode": None}
+
 
 import csv
 
@@ -177,15 +195,24 @@ def parse_listing(text: str) -> dict:
             state = m.group(2).upper()
             zipcode = m.group(3)
 
-    # ZIP lookup override
-    lookup = get_zip_lookup(bucket_name, structured_prefix)
-    if zipcode and zipcode in lookup:
-        city = lookup[zipcode]["city"]
-        state = lookup[zipcode]["state"]
+    # LAT/LON extraction (temporary)
+    lat_match = LAT_RE.search(text)
+    lon_match = LON_RE.search(text)
+    lat = float(lat_match.group(1)) if lat_match else None
+    lon = float(lon_match.group(1)) if lon_match else None
 
-    d["city"] = city
-    d["state"] = state
-    d["zipcode"] = zipcode
+    # Reverse geocode if coordinates exist
+    if lat and lon:
+        geo_info = reverse_geocode(lat, lon)  # can use geopy or Google API
+        d["city"] = geo_info["city"]
+        d["state"] = geo_info["state"]
+        d["zipcode"] = geo_info["zipcode"]
+    else:
+        # fallback: extract from text
+        city, state, zipcode = extract_from_text(text)
+        d["city"] = city
+        d["state"] = state
+        d["zipcode"] = zipcode
   
     return d
 
