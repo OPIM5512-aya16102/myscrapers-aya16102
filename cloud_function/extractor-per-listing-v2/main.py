@@ -27,12 +27,6 @@ STRUCTURED_PREFIX = os.getenv("STRUCTURED_PREFIX", "structured_v2")
 # -------------------- GLOBALS --------------------
 storage_client = storage.Client()
 
-CITY_TO_STATE = {}
-CITY_RE = None
-
-# Load at container start
-load_city_map(BUCKET_NAME, "datasets/uscities.csv")
-
 # -------------------- REGEX --------------------
 PRICE_RE = re.compile(r"\$\s?([\d,]+)")
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
