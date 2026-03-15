@@ -7,3 +7,5 @@ pandas>=2.1.1
 google-api-core>=2.13.2
 
 geopy>=2.3.0
+
+scipy==1.11.1
