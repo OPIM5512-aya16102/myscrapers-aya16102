@@ -8,4 +8,4 @@ google-api-core>=2.13.2
 
 geopy>=2.3.0
 
-scipy==1.11.1
+scipy>=1.11.1
