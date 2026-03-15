@@ -75,24 +75,24 @@ import csv
 zip_lookup = {}
 
 def load_zip_lookup():
-    bucket = storage_client.bucket(BUCKET_NAME)
-    blob = bucket.blob(f"{STRUCTURED_PREFIX}/datasets/us_zips.csv")
-
-    data = blob.download_as_text()
-    
-    reader = csv.DictReader(data.splitlines())
-    lookup = {}
-    
-    for row in reader:
-        lookup[row["zip"]] = {
-            "city": row["city"],
-            "state": row["state"]
-        }
-    
-    return lookup
+    try:
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(f"{STRUCTURED_PREFIX}/datasets/us_zips.csv")
+        data = blob.download_as_text()
+        reader = csv.DictReader(data.splitlines())
+        return {row["zip"]: {"city": row["city"], "state": row["state"]} for row in reader}
+    except Exception as e:
+        logging.error(f"Failed to load ZIP lookup: {e}")
+        return {}
 
 
-zip_lookup = load_zip_lookup()
+zip_lookup = None
+
+def get_zip_lookup():
+    global zip_lookup
+    if zip_lookup is None:
+        zip_lookup = load_zip_lookup()
+    return zip_lookup
 
 # -------------------- PARSING FUNCTION --------------------
 def parse_listing(text: str) -> dict:
@@ -154,7 +154,7 @@ def parse_listing(text: str) -> dict:
     # LOCATION
     city = None
     state = None
-    zipcode = None
+    
 
     # Pattern 1: Craigslist title
     m = LOCATION_TITLE_RE.search(text)
@@ -177,10 +177,11 @@ def parse_listing(text: str) -> dict:
             state = m.group(2).upper()
             zipcode = m.group(3)
 
-# ZIP lookup override
-    if zipcode and zipcode in zip_lookup:
-        city = zip_lookup[zipcode]["city"]
-        state = zip_lookup[zipcode]["state"]
+    # ZIP lookup override
+    lookup = get_zip_lookup(bucket_name, structured_prefix)
+    if zipcode and zipcode in lookup:
+        city = lookup[zipcode]["city"]
+        state = lookup[zipcode]["state"]
 
     d["city"] = city
     d["state"] = state
