@@ -112,6 +112,20 @@ def get_zip_lookup():
         zip_lookup = load_zip_lookup()
     return zip_lookup
 
+
+def extract_lat_lon_from_meta(text: str):
+    """
+    Looks for <meta name="geo.position" content="lat;lon">
+    Returns (lat, lon) as floats or (None, None)
+    """
+    m = re.search(r'<meta\s+name=["\']geo.position["\']\s+content=["\']([\-0-9\.]+);([\-0-9\.]+)["\']', text, re.I)
+    if m:
+        try:
+            return float(m.group(1)), float(m.group(2))
+        except:
+            return None, None
+    return None, None
+
 # -------------------- PARSING FUNCTION --------------------
 def parse_listing(text: str) -> dict:
     d = {}
@@ -169,43 +183,40 @@ def parse_listing(text: str) -> dict:
     fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
 
-    # LOCATION
-    city = None
-    state = None
-    
-
-    # Pattern 1: Craigslist title
-    m = LOCATION_TITLE_RE.search(text)
-    if m:
-        city = m.group(1).strip()
-        state = m.group(2).upper()
-        zipcode = m.group(3)
-
-    # Pattern 2: Parentheses
-    if city is None:
-        m = LOCATION_PAREN_RE.search(text)
+        # inside parse_listing
+    lat, lon = extract_lat_lon_from_meta(text)
+    if lat is not None and lon is not None:
+        location_info = reverse_geocode(lat, lon)
+        d["city"] = location_info.get("city")
+        d["state"] = location_info.get("state")
+        d["zipcode"] = location_info.get("zipcode")
+    else:
+        # fallback: try regex-based extraction
+        zipcode = None
+        m = LOCATION_TITLE_RE.search(text)
         if m:
-            city = m.group(1).strip().title()
-
-    # Pattern 3: generic city/state
-    if city is None:
-        m = LOCATION_CITY_STATE_RE.search(text)
-        if m:
-            city = m.group(1).strip()
-            state = m.group(2).upper()
+            d["city"] = m.group(1).strip()
+            d["state"] = m.group(2).upper()
             zipcode = m.group(3)
 
-    # LAT/LON extraction (temporary)
-    lat, lon = extract_location_from_meta(text)
-    if lat and lon:
-        from geopy.geocoders import Nominatim
-        geolocator = Nominatim(user_agent="craigslist_scraper")
-        location = geolocator.reverse((lat, lon), exactly_one=True)
-        if location and location.raw.get("address"):
-            addr = location.raw["address"]
-            d["zipcode"] = addr.get("postcode")
-            d["city"] = addr.get("city") or addr.get("town") or addr.get("village")
-            d["state"] = addr.get("state")
+        if not d.get("city"):
+            m = LOCATION_PAREN_RE.search(text)
+            if m:
+                d["city"] = m.group(1).strip().title()
+
+        if not d.get("city"):
+            m = LOCATION_CITY_STATE_RE.search(text)
+            if m:
+                d["city"] = m.group(1).strip()
+                d["state"] = m.group(2).upper()
+                zipcode = m.group(3)
+
+        # optional: override city/state from zip lookup
+        if zipcode:
+            zips = get_zip_lookup()
+            if zipcode in zips:
+                d["city"] = zips[zipcode]["city"]
+                d["state"] = zips[zipcode]["state"]
   
     return d
 
