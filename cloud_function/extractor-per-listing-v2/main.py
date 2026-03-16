@@ -231,7 +231,7 @@ def parse_listing(text: str) -> dict:
     if city and state and not zipcode and city_state_to_zip:
         zipcode = city_state_to_zip.get((city.lower(), state.lower()))
 
-        # Pad 4-digit ZIPs with leading zero
+    # Pad 4-digit ZIPs with leading zero
     if zipcode and len(zipcode) == 4:
         zipcode = "0" + zipcode    
 
