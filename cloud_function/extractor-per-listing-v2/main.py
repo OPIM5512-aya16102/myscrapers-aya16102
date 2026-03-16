@@ -251,7 +251,7 @@ def parse_listing(text: str) -> dict:
             zipcode = zipcode or info["zipcode"]
     
     if city and state and not zipcode:
-        zip_lookup, city_state_to_zip = get_zip_lookup()
+        zipcode = city_state_to_zip.get((city.lower(), state.lower()))
             
 
     d["city"] = city
