@@ -68,39 +68,6 @@ LAT_RE = re.compile(r"latitude:\s*([\-0-9\.]+)", re.I)
 LON_RE = re.compile(r"longitude:\s*([\-0-9\.]+)", re.I)
 
 
-#
-from geopy.geocoders import Nominatim
-
-geolocator = Nominatim(user_agent="craigslist_scraper")
-
-# Cache for reverse geocoding results to reduce repeated calls
-location_cache = {}
-
-
-
-def reverse_geocode(lat, lon):
-    key = f"{lat},{lon}"
-    if key in location_cache:
-        return location_cache[key]
-
-    try:
-        location = geolocator.reverse((lat, lon), exactly_one=True, addressdetails=True)
-        if location and "address" in location.raw:
-            addr = location.raw["address"]
-            info = {
-                "city": addr.get("city") or addr.get("town") or addr.get("village"),
-                "state": addr.get("state"),
-                "zipcode": addr.get("postcode")
-            }
-            location_cache[key] = info  # store in cache
-            return info
-    except Exception as e:
-        logging.warning(f"Reverse geocode failed for {lat},{lon}: {e}")
-
-    # Store a "None" entry to avoid retrying failed locations
-    location_cache[key] = {"city": None, "state": None, "zipcode": None}
-    return location_cache[key]
-
 
 import csv
 
@@ -143,23 +110,20 @@ def get_zip_lookup():
     return zip_lookup, city_state_to_zip
 
 
-def extract_location_from_meta(text):
-    """
-    Extract latitude and longitude from Craigslist meta tag
-    """
-    m = re.search(
-        r'<meta\s+name=["\']geo.position["\']\s+content=["\']([-\d.]+);([-\d.]+)["\']',
-        text,
-        re.I
-    )
+def extract_city_state_from_meta(text):
+    city = None
+    state = None
 
-    if m:
-        try:
-            return float(m.group(1)), float(m.group(2))
-        except:
-            pass
+    m1 = re.search(r'<meta\s+property=["\']og:locality["\']\s+content=["\']([^"\']+)', text, re.I)
+    m2 = re.search(r'<meta\s+property=["\']og:region["\']\s+content=["\']([^"\']+)', text, re.I)
 
-    return None, None
+    if m1:
+        city = m1.group(1).strip()
+
+    if m2:
+        state = m2.group(1).strip()
+
+    return city, state
 
 # -------------------- PARSING FUNCTION --------------------
 def parse_listing(text: str) -> dict:
@@ -218,22 +182,19 @@ def parse_listing(text: str) -> dict:
     fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
 
-    # ------------------- LOCATION -------------------
+        # ------------------- LOCATION -------------------
     city = None
     state = None
     zipcode = None
 
     zip_lookup, city_state_to_zip = get_zip_lookup()
 
-    # 1️⃣ FIRST: try meta lat/lon
-    lat, lon = extract_location_from_meta(text)
+    # 1️⃣ Fastest: Craigslist meta tags
+    city_meta, state_meta = extract_city_state_from_meta(text)
 
-    if lat and lon:
-        info = reverse_geocode(lat, lon)
-
-        city = info["city"]
-        state = info["state"]
-        zipcode = info["zipcode"]
+    if city_meta and state_meta:
+        city = city_meta
+        state = state_meta
 
     # 2️⃣ Craigslist title pattern
     if not city:
@@ -249,7 +210,7 @@ def parse_listing(text: str) -> dict:
         if m:
             city = m.group(1).strip().title()
 
-    # 4️⃣ Generic city/state pattern
+    # 4️⃣ Generic city/state fallback
     if not city:
         m = LOCATION_CITY_STATE_RE.search(text)
         if m:
@@ -262,10 +223,11 @@ def parse_listing(text: str) -> dict:
         city = zip_lookup[zipcode]["city"]
         state = zip_lookup[zipcode]["state"]
 
+    # Normalize values
     city = city.strip() if city else None
     state = state.strip().upper() if state else None
 
-    # 6️⃣ city/state → ZIP fallback (FAST lookup)
+    # 6️⃣ city/state → ZIP lookup
     if city and state and not zipcode and city_state_to_zip:
         zipcode = city_state_to_zip.get((city.lower(), state.lower()))
 
