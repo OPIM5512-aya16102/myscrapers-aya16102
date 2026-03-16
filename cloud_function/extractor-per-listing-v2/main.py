@@ -104,49 +104,61 @@ def reverse_geocode(lat, lon):
 
 import csv
 
-zip_lookup = {}
+zip_lookup = None
+city_state_to_zip = None
+
 
 def load_zip_lookup():
     try:
         bucket = storage_client.bucket(BUCKET_NAME)
         blob = bucket.blob(f"{STRUCTURED_PREFIX}/datasets/us_zips.csv")
         data = blob.download_as_text()
+
         reader = csv.DictReader(data.splitlines())
-        return {row["postal code"]: {"city": row["place name"], "state": row["admin code1"]} for row in reader}
+
+        zip_map = {}
+        city_state_map = {}
+
+        for row in reader:
+            zipcode = row["postal code"]
+            city = row["place name"]
+            state = row["admin code1"]
+
+            zip_map[zipcode] = {"city": city, "state": state}
+            city_state_map[(city.lower(), state.lower())] = zipcode
+
+        return zip_map, city_state_map
+
     except Exception as e:
         logging.error(f"Failed to load ZIP lookup: {e}")
-        return {}
+        return {}, {}
 
-
-zip_lookup = None
 
 def get_zip_lookup():
-    global zip_lookup
+    global zip_lookup, city_state_to_zip
+
     if zip_lookup is None:
-        zip_lookup = load_zip_lookup()
-    return zip_lookup
+        zip_lookup, city_state_to_zip = load_zip_lookup()
+
+    return zip_lookup, city_state_to_zip
 
 
-def extract_lat_lon_from_meta(text: str):
+def extract_location_from_meta(text):
     """
-    Looks for <meta name="geo.position" content="lat;lon">
-    Returns (lat, lon) as floats or (None, None)
+    Extract latitude and longitude from Craigslist meta tag
     """
-    m = re.search(r'<meta\s+name=["\']geo.position["\']\s+content=["\']([\-0-9\.]+);([\-0-9\.]+)["\']', text, re.I)
+    m = re.search(
+        r'<meta\s+name=["\']geo.position["\']\s+content=["\']([-\d.]+);([-\d.]+)["\']',
+        text,
+        re.I
+    )
+
     if m:
         try:
             return float(m.group(1)), float(m.group(2))
         except:
-            return None, None
-    return None, None
+            pass
 
-def extract_location_from_meta(html: str):
-    """
-    Extract latitude and longitude from <meta name="geo.position" content="lat;lon">
-    """
-    m = re.search(r'<meta\s+name=["\']geo.position["\']\s+content=["\']([-\d.]+);([-\d.]+)["\']', html)
-    if m:
-        return float(m.group(1)), float(m.group(2))
     return None, None
 
 # -------------------- PARSING FUNCTION --------------------
@@ -206,53 +218,53 @@ def parse_listing(text: str) -> dict:
     fuel_m = re.search(r"^\s*fuel\s*[:=\-]?\s*([^\n\r]+)", text, re.I | re.M)
     d["fuel"] = fuel_m.group(1).strip() if fuel_m else None
 
-        # ------------------- LOCATION -------------------
+    # ------------------- LOCATION -------------------
     city = None
     state = None
     zipcode = None
 
     zip_lookup, city_state_to_zip = get_zip_lookup()
 
-    # Pattern 1: Craigslist title
-    m = LOCATION_TITLE_RE.search(text)
-    if m:
-        city = m.group(1).strip()
-        state = m.group(2).upper()
-        zipcode = m.group(3)
+    # 1️⃣ FIRST: try meta lat/lon
+    lat, lon = extract_location_from_meta(text)
 
-    # Pattern 2: Parentheses
-    if city is None:
+    if lat and lon:
+        info = reverse_geocode(lat, lon)
+
+        city = info["city"]
+        state = info["state"]
+        zipcode = info["zipcode"]
+
+    # 2️⃣ Craigslist title pattern
+    if not city:
+        m = LOCATION_TITLE_RE.search(text)
+        if m:
+            city = m.group(1).strip()
+            state = m.group(2).upper()
+            zipcode = m.group(3)
+
+    # 3️⃣ Parentheses location
+    if not city:
         m = LOCATION_PAREN_RE.search(text)
         if m:
             city = m.group(1).strip().title()
 
-    # Pattern 3: generic city/state
-    if city is None:
+    # 4️⃣ Generic city/state pattern
+    if not city:
         m = LOCATION_CITY_STATE_RE.search(text)
         if m:
             city = m.group(1).strip()
             state = m.group(2).upper()
             zipcode = m.group(3)
 
-    # ZIP CSV lookup overrides regex if available
-    if zipcode:
-        z_lookup = get_zip_lookup()
-        if zipcode in z_lookup:
-            city = z_lookup[zipcode]["city"]
-            state = z_lookup[zipcode]["state"]
+    # 5️⃣ ZIP → city/state override
+    if zipcode and zipcode in zip_lookup:
+        city = zip_lookup[zipcode]["city"]
+        state = zip_lookup[zipcode]["state"]
 
-    # If no zipcode / city / state yet, try meta-based lat/lon
-    if not city or not state or not zipcode:
-        lat, lon = extract_location_from_meta(text)
-        if lat and lon:
-            info = reverse_geocode(lat, lon)
-            city = city or info["city"]
-            state = state or info["state"]
-            zipcode = zipcode or info["zipcode"]
-    
+    # 6️⃣ city/state → ZIP fallback (FAST lookup)
     if city and state and not zipcode:
         zipcode = city_state_to_zip.get((city.lower(), state.lower()))
-            
 
     d["city"] = city
     d["state"] = state
@@ -317,6 +329,7 @@ def extract_http(request: Request):
             record = {
                 "post_id": post_id,
                 "run_id": run_id,
+                "scraped_at": scraped_at_iso,
                 "source_txt": name,
                 **fields,
             }
