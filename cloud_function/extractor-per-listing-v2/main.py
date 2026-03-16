@@ -253,7 +253,18 @@ def _upload_jsonl_line(blob_name: str, record: dict):
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
     blob.upload_from_string(line, content_type="application/x-ndjson")
 
-
+def _parse_run_id_as_iso(run_id: str) -> str:
+    """Normalize either run_id style to ISO8601 Z (fallback = now UTC)."""
+    try:
+        if RUN_ID_ISO_RE.match(run_id):
+            dt = datetime.strptime(run_id, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        elif RUN_ID_PLAIN_RE.match(run_id):
+            dt = datetime.strptime(run_id, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        else:
+            raise ValueError("unsupported run_id")
+        return dt.isoformat().replace("+00:00", "Z")
+    except Exception:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 # -------------------- CLOUD FUNCTION ENTRY --------------------
 def extract_http(request: Request):
@@ -284,6 +295,7 @@ def extract_http(request: Request):
             return jsonify({"ok": False, "error": "no run_id found"}), 200
 
     # List .txt files for run
+    scraped_at_iso = _parse_run_id_as_iso(run_id)
     txt_blobs = [b.name for b in storage_client.list_blobs(BUCKET_NAME, prefix=f"{SCRAPES_PREFIX}/{run_id}/") if b.name.endswith(".txt")]
     if max_files > 0:
         txt_blobs = txt_blobs[:max_files]
@@ -298,6 +310,7 @@ def extract_http(request: Request):
             record = {
                 "post_id": post_id,
                 "run_id": run_id,
+                "scraped_at": scraped_at_iso,
                 "source_txt": name,
                 **fields,
             }
