@@ -332,7 +332,6 @@ def extract_http(request: Request):
             record = {
                 "post_id": post_id,
                 "run_id": run_id,
-                "scraped_at": scraped_at_iso,
                 "source_txt": name,
                 **fields,
             }
