@@ -262,6 +262,9 @@ def parse_listing(text: str) -> dict:
         city = zip_lookup[zipcode]["city"]
         state = zip_lookup[zipcode]["state"]
 
+    city = city.strip() if city else None
+    state = state.strip().upper() if state else None
+
     # 6️⃣ city/state → ZIP fallback (FAST lookup)
     if city and state and not zipcode and city_state_to_zip:
         zipcode = city_state_to_zip.get((city.lower(), state.lower()))
