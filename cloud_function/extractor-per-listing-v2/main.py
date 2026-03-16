@@ -211,6 +211,8 @@ def parse_listing(text: str) -> dict:
     state = None
     zipcode = None
 
+    zip_lookup, city_state_to_zip = get_zip_lookup()
+
     # Pattern 1: Craigslist title
     m = LOCATION_TITLE_RE.search(text)
     if m:
@@ -236,8 +238,8 @@ def parse_listing(text: str) -> dict:
     if zipcode:
         z_lookup = get_zip_lookup()
         if zipcode in z_lookup:
-            city = z_lookup[zipcode]["place name"]
-            state = z_lookup[zipcode]["admin code1"]
+            city = z_lookup[zipcode]["city"]
+            state = z_lookup[zipcode]["state"]
 
     # If no zipcode / city / state yet, try meta-based lat/lon
     if not city or not state or not zipcode:
@@ -247,6 +249,10 @@ def parse_listing(text: str) -> dict:
             city = city or info["city"]
             state = state or info["state"]
             zipcode = zipcode or info["zipcode"]
+    
+    if city and state and not zipcode:
+        zipcode = city_state_to_zip.get((city.lower(), state.lower()))
+            
 
     d["city"] = city
     d["state"] = state
