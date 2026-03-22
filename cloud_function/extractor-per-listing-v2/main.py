@@ -41,18 +41,23 @@ PRICE_RE = re.compile(r"\$\s?([\d,]+)")
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 CAR_MAKES = [
     "Toyota", "Honda", "Ford", "Chevrolet", "Nissan", "BMW",
-    "Mercedes", "Kia", "Hyundai", "Volkswagen", "Subaru",
-    "Mazda", "Jeep", "Ram", "GMC"
+    "Mercedes", "Mercedes-Benz", "Benz", "Kia", "Hyundai",
+    "Volkswagen", "Subaru", "Mazda", "Jeep", "Ram", "GMC",
+    "Audi", "Lexus", "Acura", "Infiniti"
 ]
 MAKE_MODEL_RE = re.compile(
-    r"\b(" + "|".join(CAR_MAKES) + r")\b\s+([A-Za-z0-9\-]+)",
+    r"\b(" + "|".join(CAR_MAKES) + r")\b[\s\-]+([A-Za-z0-9\-]+)",
+    re.I
+)
+
+CAR_WORD_RE = re.compile(
+    r"\b(" + "|".join(CAR_MAKES) + r"|[A-Z]{2,})\b",
     re.I
 )
 
 LOCATION_TITLE_RE = re.compile(
-        r"-\s*([A-Za-z .'-]+?),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*-",
-        re.I
-    )
+    r"-\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*-"
+)
 
 LOCATION_PAREN_RE = re.compile(
         r"\(([A-Za-z .'-]+)\)",
@@ -64,6 +69,12 @@ LOCATION_CITY_STATE_RE = re.compile(
         re.I
     )
 
+
+JUNK_PREFIX_RE = re.compile(
+    r"\b(spec|clean|runs|drives|excellent|good|for sale|sale|must sell)\b",
+    re.I
+)
+
 LAT_RE = re.compile(r"latitude:\s*([\-0-9\.]+)", re.I)
 LON_RE = re.compile(r"longitude:\s*([\-0-9\.]+)", re.I)
 
@@ -73,6 +84,37 @@ import csv
 
 zip_lookup = None
 city_state_to_zip = None
+
+def looks_like_car(text):
+    if not text:
+        return False
+
+    text = text.strip()
+
+    # short all-caps words like BENZ, BMW, LX, EX
+    if text.isupper() and len(text) <= 6:
+        return True
+
+    # matches known car makes
+    if CAR_WORD_RE.search(text):
+        return True
+
+    return False
+
+def clean_city(city):
+    if not city:
+        return city
+
+    # Take last part after dash
+    if "-" in city:
+        city = city.split("-")[-1]
+
+    city = city.strip()
+
+    # Remove junk words
+    city = JUNK_PREFIX_RE.sub("", city).strip()
+
+    return city
 
 
 def load_zip_lookup():
@@ -234,6 +276,17 @@ def parse_listing(text: str) -> dict:
     # Pad 4-digit ZIPs with leading zero
     if zipcode and len(zipcode) == 4:
         zipcode = "0" + zipcode    
+
+    city = city.strip() if city else None
+    state = state.strip().upper() if state else None
+
+    # 🧹 CLEAN CITY
+    city = clean_city(city)
+
+    # 🚫 REMOVE BAD VALUES (your previous fix)
+    if looks_like_car(city):
+        city = None
+
 
     d["city"] = city
     d["state"] = state
