@@ -15,7 +15,7 @@ from sklearn.metrics import mean_absolute_error
 # ---- ENV ----
 PROJECT_ID     = os.getenv("PROJECT_ID", "")
 GCS_BUCKET     = os.getenv("GCS_BUCKET", "")
-DATA_KEY       = os.getenv("DATA_KEY", "structured/datasets/listings_master.csv")
+DATA_KEY       = os.getenv("DATA_KEY", "structured_v2/datasets/listings_master2.csv")
 OUTPUT_PREFIX  = os.getenv("OUTPUT_PREFIX", "preds")            # e.g., "structured/preds"
 TIMEZONE       = os.getenv("TIMEZONE", "America/New_York")      # split by local day
 LOG_LEVEL      = os.getenv("LOG_LEVEL", "INFO")
@@ -87,7 +87,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     # --- Model: make, model, year_num, mileage_num -> price_num ---
     target = "price_num"
-    cat_cols = ["make", "model"]
+    cat_cols = ["make", "model", "color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
     num_cols = ["year_num", "mileage_num"]
     feats = cat_cols + num_cols
 
@@ -101,21 +101,66 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         ]
     )
 
-    model = DecisionTreeRegressor(max_depth=max_depth, min_samples_leaf=min_samples_leaf, random_state=42)
+
+
+    validation_size = 0.20
+    seed = 123  # so you will split the same way and evaluate the SAME dataset
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_res, y_res,
+        test_size=validation_size,
+        random_state=seed,
+        stratify=y_res    # usually good for classification
+    )
+
+    # =========================================================
+    # 1) Construct and fit TPOT classifier
+    # =========================================================
+    start_time = time.time()
+    tpot = TPOTClassifier(
+        generations=1,
+        cv=3,
+        random_state=seed
+    )
+    tpot.fit(X_train, y_train)
+    end_time = time.time()
+
+    print("TPOT classifier finished in %.2f seconds" % (end_time - start_time))
+
+    # =========================================================
+    # 2) Evaluate best pipeline on test set
+    # =========================================================
+    y_pred = tpot.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    print("Best pipeline test accuracy: %.3f" % acc)
+
+    # =========================================================
+    # 3) Inspect the best pipeline
+    # =========================================================
+    print("\nBest pipeline found by TPOT:\n")
+    print(tpot.fitted_pipeline_)
+
+    print("\nPipeline steps (one by one):")
+    for name, step in tpot.fitted_pipeline_.steps:
+        print(f"\nStep: {name}\n{step}\n")
+
+    # =========================================================
+    # 4) Save best pipeline to disk
+    # =========================================================
+    model_path = "tpot_breastcancer_pipeline.joblib"
+    model = joblib.dump(tpot.fitted_pipeline_, model_path)
     pipe = Pipeline([("pre", pre), ("model", model)])
-
-    X_train = train_df[feats]
-    y_train = train_df[target]
-    pipe.fit(X_train, y_train)
-
+    best_pipe = joblib.load(model_path)
+    y_pred_loaded = best_pipe.predict(X_test)
+ 
     # ---- Predict/evaluate on today's holdout (now includes actual price fields) ----
     mae_today = None
     preds_df = pd.DataFrame()
     if not holdout_df.empty:
         X_h = holdout_df[feats]
-        y_hat = pipe.predict(X_h)
+        y_hat = best_pipe.predict(X_h)
 
-        cols = ["post_id", "scraped_at", "make", "model", "year", "mileage", "price"]
+        cols = ["post_id", "scraped_at", "make", "model", "year", "mileage", "price", "color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
         preds_df = holdout_df[cols].copy()
         preds_df["actual_price"] = holdout_df["price_num"]       # cleaned numeric truth
         preds_df["pred_price"]   = np.round(y_hat, 2)
