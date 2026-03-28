@@ -39,7 +39,12 @@ storage_client = storage.Client()
 # -------------------- REGEX --------------------
 PRICE_RE = re.compile(r"\$\s?([\d,]+)")
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
-
+CAR_MAKES = [
+    "Toyota", "Honda", "Ford", "Chevrolet", "Nissan", "BMW",
+    "Mercedes", "Mercedes-Benz", "Benz", "Kia", "Hyundai",
+    "Volkswagen", "Subaru", "Mazda", "Jeep", "Ram", "GMC",
+    "Audi", "Lexus", "Acura", "Infiniti"
+]
 MAKE_MODEL_RE = re.compile(r"\b([A-Z][a-z]+)\s+([A-Z][A-Za-z0-9]+)")
 
 CAR_WORD_RE = re.compile(
