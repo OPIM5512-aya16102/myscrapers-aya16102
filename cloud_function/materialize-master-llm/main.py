@@ -49,7 +49,7 @@ def _list_run_ids(bucket: str, structured_prefix: str) -> list[str]:
 def _jsonl_records_for_run(bucket: str, structured_prefix: str, run_id: str):
     """Yield dict records from .jsonl under .../run_id=<run_id>/jsonl/ (one JSON per file)."""
     b = storage_client.bucket(bucket)
-    prefix = f"{structured_prefix}/run_id={run_id}/jsonl/"
+    prefix = f"{structured_prefix}/run_id={run_id}/jsonl_llm/"
     for blob in b.list_blobs(prefix=prefix):
         if not blob.name.endswith(".jsonl"):
             continue
@@ -118,7 +118,7 @@ def materialize_http(request: Request):
                     latest_by_post[pid] = rec
 
         base = f"{STRUCTURED_PREFIX}/datasets"
-        final_key = f"{base}/listings_master_v2.csv"
+        final_key = f"{base}/listings_master_llc.csv"
         rows = _write_csv(latest_by_post.values(), final_key)
 
         return jsonify({
