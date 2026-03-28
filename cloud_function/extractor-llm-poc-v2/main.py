@@ -189,6 +189,8 @@ def _vertex_extract_fields(raw_text: str) -> dict:
         "Figure what what the make and model is given the provided information."
         "transmission can be manual or automatic; or if not listed, write null."
         "Try to figure out the city, state, and zipcode. Do not infer values not explicitly present."
+        "Condition can either be Excellent, Good, or Poor."
+        "Categorize colors into their simpler forms, for example Scarlet Red can just be red." 
         "do not infer values not explicitly present; do not add extra keys."
     )
 
