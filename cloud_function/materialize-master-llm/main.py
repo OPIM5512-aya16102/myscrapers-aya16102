@@ -18,6 +18,8 @@ from google.cloud import storage
 BUCKET_NAME        = os.getenv("GCS_BUCKET")                      # REQUIRED
 STRUCTURED_PREFIX  = os.getenv("STRUCTURED_PREFIX", "structured_v2") # e.g., "structured"
 
+
+
 storage_client = storage.Client()
 
 # Accept BOTH runIDs:
@@ -134,19 +136,23 @@ def materialize_http(request: Request):
     try:
         if not BUCKET_NAME:
             return jsonify({"ok": False, "error": "missing GCS_BUCKET env"}), 500
+        
+        base = f"{STRUCTURED_PREFIX}/datasets"
+        final_key = f"{base}/listings_master_llm.csv"
 
+        # ✅ Get latest 30 runs
         run_ids = _latest_run_ids(BUCKET_NAME, STRUCTURED_PREFIX, limit=30)
+
         if not run_ids:
             return jsonify({
-                                "ok": True,
-                                "runs_scanned": len(run_ids),
-                                "runs_limit": 30,
-                                "unique_listings": len(latest_by_post),
-                                "rows_written": rows,
-                                "output_csv": f"gs://{BUCKET_NAME}/{final_key}"
-                            }), 200
+                "ok": False,
+                "error": "no runs found"
+            }), 200
 
+        # ✅ Load existing CSV
         latest_by_post = _read_existing_csv(BUCKET_NAME, final_key)
+
+        # ✅ Merge new data
         for rid in run_ids:
             for rec in _jsonl_records_for_run(BUCKET_NAME, STRUCTURED_PREFIX, rid):
                 pid = rec.get("post_id")
@@ -167,10 +173,11 @@ def materialize_http(request: Request):
         return jsonify({
             "ok": True,
             "runs_scanned": len(run_ids),
+            "runs_limit": 30,
             "unique_listings": len(latest_by_post),
             "rows_written": rows,
             "output_csv": f"gs://{BUCKET_NAME}/{final_key}"
         }), 200
+
     except Exception as e:
-        # Return a JSON error so you don't just see a plain 500
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
