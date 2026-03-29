@@ -318,7 +318,7 @@ def llm_extract_http(request: Request):
 
             # Output path: uses 'jsonl_llm/' folder
             out_prefix = in_key.rsplit("/", 2)[0] + "/jsonl_llm"
-            out_key = out_prefix + f"/{post_id}_llm.jsonl"
+            out_key = out_prefix + f"/{post_id}_llm_v2.jsonl"
 
             if not overwrite and _blob_exists(out_key):
                 skipped += 1
@@ -361,7 +361,7 @@ def llm_extract_http(request: Request):
 
     result = {
         "ok": True,
-        "version": "extractor-llm-poc",
+        "version": "extractor-llm-v2",
         "run_id": run_id,
         "processed": processed,
         "written": written,
