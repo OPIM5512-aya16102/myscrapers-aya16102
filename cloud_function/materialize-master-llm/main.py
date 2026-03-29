@@ -58,8 +58,8 @@ def _read_existing_csv(bucket: str, key: str) -> Dict[str, Dict]:
     return existing
 
 
-# Get 30 most recent runs
-def _latest_run_ids(bucket: str, structured_prefix: str, limit: int = 30) -> list[str]:
+# Get 6 most recent runs
+def _latest_run_ids(bucket: str, structured_prefix: str, limit: int = 6) -> list[str]:
     run_ids = _list_run_ids(bucket, structured_prefix)
 
     # Sort by parsed datetime (newest first)
@@ -140,8 +140,8 @@ def materialize_http(request: Request):
         base = f"{STRUCTURED_PREFIX}/datasets"
         final_key = f"{base}/listings_master_llm.csv"
 
-        # ✅ Get latest 30 runs
-        run_ids = _latest_run_ids(BUCKET_NAME, STRUCTURED_PREFIX, limit=30)
+        # ✅ Get latest 6 runs
+        run_ids = _latest_run_ids(BUCKET_NAME, STRUCTURED_PREFIX, limit=6)
 
         if not run_ids:
             return jsonify({
@@ -173,7 +173,7 @@ def materialize_http(request: Request):
         return jsonify({
             "ok": True,
             "runs_scanned": len(run_ids),
-            "runs_limit": 30,
+            "runs_limit": 6,
             "unique_listings": len(latest_by_post),
             "rows_written": rows,
             "output_csv": f"gs://{BUCKET_NAME}/{final_key}"
