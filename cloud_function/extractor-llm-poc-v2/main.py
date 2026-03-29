@@ -317,7 +317,7 @@ def llm_extract_http(request: Request):
                 raise ValueError("missing source_txt in input record")
 
             # Output path: uses 'jsonl_llm/' folder
-            out_prefix = in_key.rsplit("/", 2)[0] + "/jsonl_llm"
+            out_prefix = in_key.rsplit("/", 2)[0] + "/jsonl_llm_v2"
             out_key = out_prefix + f"/{post_id}_llm_v2.jsonl"
 
             if not overwrite and _blob_exists(out_key):
