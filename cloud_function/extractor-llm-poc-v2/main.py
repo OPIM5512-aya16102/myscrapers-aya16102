@@ -191,10 +191,10 @@ def _vertex_extract_fields(raw_text: str) -> dict:
         "Try to figure out the city and state. Do not infer values not explicitly present."
         "Use the city and state features to estimate zip code ONLY."
         "Zip code should be 5 digits. If its four digits add a 0 to the start."
-        "If you can't find the zipcode, populate with the zip code from the main area obtained using the city and state."
+        "If you can't find the zipcode in the text, populate by referencing the internet for the zip code of the major area obtained using the city and state."
         "Condition can either be Excellent, Good, or Poor. Try to find the words that correlate with Excellent, Good, or Poor."
         "Categorize colors into their simpler forms, for example Scarlet Red can just be red." 
-        "do not infer values not explicitly present; do not add extra keys."
+        "do not infer values not explicitly present; do not add extra keys. Zipcode is an exception"
     )
 
     # FIX: Combine instruction and text into one prompt string (SDK compatibility)
