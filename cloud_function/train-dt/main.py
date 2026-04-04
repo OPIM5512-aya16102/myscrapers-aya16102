@@ -78,7 +78,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         df['miles_age_ratio'] = df['mileage'] / df['age']
         return(df)
 
-    df = clean(df)
+    df = clean_data(df)
     # --- Clean numerics BEFORE counting/dropping ---
     orig_rows = len(df)
     df["price_num"]   = _clean_numeric(df["price"])
