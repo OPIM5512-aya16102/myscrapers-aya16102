@@ -11,6 +11,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import mean_absolute_error
+import joblib
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, r2_score
+
+    
+    
 
 # ---- ENV ----
 PROJECT_ID     = os.getenv("PROJECT_ID", "")
@@ -132,7 +137,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         return 10 ** x
 
     from sklearn.compose import TransformedTargetRegressor
-    import numpy as np
     from sklearn.model_selection import GridSearchCV
     # Construct some pipelines
     pipe_dt = Pipeline([('preprocessor', preprocessor),
@@ -223,12 +227,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     print('Performing model optimizations...')
 
-    import numpy as np
-    import os
-    import re
-    import joblib
-    import pandas as pd
-    from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, r2_score
+    
 
     # =========================================================
     # Setup
