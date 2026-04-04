@@ -70,7 +70,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         for col in df.select_dtypes(include=['object', 'string']):
             if col not in exclude_cols:
-                df[col] = df[col].str.lower()
+                df[col] = df[col].astype(str).str.lower()
 
         df['color'] = df['color'].str.replace('gray', 'grey', case=False, regex=False)
         df['make_model'] = df['make'] + '_' + df['model']
