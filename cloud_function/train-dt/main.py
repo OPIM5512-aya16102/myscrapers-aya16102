@@ -15,7 +15,7 @@ from sklearn.metrics import mean_absolute_error
 # ---- ENV ----
 PROJECT_ID     = os.getenv("PROJECT_ID", "")
 GCS_BUCKET     = os.getenv("GCS_BUCKET", "")
-DATA_KEY       = os.getenv("DATA_KEY", "structured_v2/datasets/listings_master2.csv")
+DATA_KEY       = os.getenv("DATA_KEY", "structured/datasets/listings_master_llm.csv")
 OUTPUT_PREFIX  = os.getenv("OUTPUT_PREFIX", "preds")            # e.g., "structured/preds"
 TIMEZONE       = os.getenv("TIMEZONE", "America/New_York")      # split by local day
 LOG_LEVEL      = os.getenv("LOG_LEVEL", "INFO")
@@ -57,11 +57,29 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         df["scraped_at_local"] = df["scraped_at_dt_utc"]
     df["date_local"] = df["scraped_at_local"].dt.date
 
+    def clean_data(df):
+        # add leading 0s
+        df['zipcode'] = df['zipcode'].astype(str).str.zfill(5)
+        exclude_cols = ['price', 'year', 'zipcode']
+
+        for col in df.select_dtypes(include=['object', 'string']):
+            if col not in exclude_cols:
+                df[col] = df[col].str.lower()
+
+        df['color'] = df['color'].str.replace('gray', 'grey', case=False, regex=False)
+        df['make_model'] = df['make'] + '_' + df['model']
+        df['age'] = 2026 - df['year']
+        df['miles_age_ratio'] = df['mileage'] / df['age']
+        return(df)
+
+    df = clean(df)
     # --- Clean numerics BEFORE counting/dropping ---
     orig_rows = len(df)
     df["price_num"]   = _clean_numeric(df["price"])
     df["year_num"]    = _clean_numeric(df["year"])
     df["mileage_num"] = _clean_numeric(df["mileage"])
+    df["age_num"] = _clean_numeric(df["age"])
+    df["mileage_age_ratio_num"] = _clean_numeric(df["mileas_age_ratio"])
 
     valid_price_rows = int(df["price_num"].notna().sum())
     logging.info("Rows total=%d | with valid numeric price=%d", orig_rows, valid_price_rows)
@@ -87,80 +105,236 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     # --- Model: make, model, year_num, mileage_num -> price_num ---
     target = "price_num"
-    cat_cols = ["make", "model", "color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
-    num_cols = ["year_num", "mileage_num"]
-    feats = cat_cols + num_cols
+    cat_cols = ['make_model', 'color', 'condition', 'transmission',
+        'fuel', 'city', 'state']
+    num_cols = ["age_num", "mileage_num", "miles_age_ratio_num"]
+    make_model_col = ["make_model"]
+    make_model_pipe = Pipeline([
+    ("topk", TopKEncoder(top_k=15)),
+    ("oh", OneHotEncoder(handle_unknown="ignore"))
+])
+    cat_pipe = Pipeline([
+    ("imp", SimpleImputer(strategy="most_frequent")),
+    ("oh", OneHotEncoder(handle_unknown="ignore"))
+])
 
-    pre = ColumnTransformer(
-        transformers=[
-            ("num", SimpleImputer(strategy="median"), num_cols),
-            ("cat", Pipeline([
-                ("imp", SimpleImputer(strategy="most_frequent")),
-                ("oh", OneHotEncoder(handle_unknown="ignore"))
-            ]), cat_cols),
-        ]
+    num_pipe = SimpleImputer(strategy="median")
+
+    preprocessor = ColumnTransformer([
+        ("make_model", make_model_pipe, make_model_col),
+        ("cat", cat_pipe, cat_cols),
+        ("num", num_pipe, num_cols)
+    ])
+
+
+    def inverse_log10(x):
+        return 10 ** x
+
+    from sklearn.compose import TransformedTargetRegressor
+    import numpy as np
+    from sklearn.model_selection import GridSearchCV
+    # Construct some pipelines
+    pipe_dt = Pipeline([('preprocessor', preprocessor),
+                ('clf', DecisionTreeRegressor(random_state=42))])
+
+
+    pipe_rf = Pipeline([('preprocessor', preprocessor),
+                ('clf', RandomForestRegressor(random_state=42))])
+
+    from xgboost import XGBRegressor
+    pipe_xgb = Pipeline([
+        ('preprocessor', preprocessor),
+        ('clf', XGBRegressor(random_state=42))])
+
+    pipe_rf_log = TransformedTargetRegressor(
+        regressor=pipe_rf,
+        func=np.log10,
+        inverse_func=inverse_log10
     )
 
+    pipe_xgb_log = TransformedTargetRegressor(
+        regressor=pipe_xgb,
+        func=np.log10,
+        inverse_func=inverse_log10
+)
+    grid_params_dt = [{
+    'clf__max_depth': [3, 5, 10, 15, None],
+    'clf__min_samples_split': [2, 5, 10, 20],
+    'clf__min_samples_leaf': [1, 2, 5, 10]
+}]
 
+    grid_params_rf = [{
+        'clf__n_estimators': [100, 200],
+        'clf__max_depth': [5, 10, 20, None],
+        'clf__min_samples_split': [2, 5, 10],
+        'clf__min_samples_leaf': [1, 2, 5]
+    }]
 
-    validation_size = 0.20
-    seed = 123  # so you will split the same way and evaluate the SAME dataset
+    grid_params_xgb = [{
+        'clf__n_estimators': [100, 200],
+        'clf__max_depth': [3, 5, 7],
+        'clf__learning_rate': [0.05, 0.1],
+        'clf__subsample': [0.8, 1.0],
+        'clf__colsample_bytree': [0.8, 1.0]
+    }]
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_res, y_res,
-        test_size=validation_size,
-        random_state=seed,
-        stratify=y_res    # usually good for classification
+    # Construct grid searches
+
+    gs_dt = GridSearchCV(estimator=pipe_dt,
+        param_grid=grid_params_dt,
+        scoring='neg_mean_absolute_error',
+        cv=10)
+
+    gs_rf = GridSearchCV(
+        estimator=pipe_rf_log,
+        param_grid={
+            'regressor__clf__n_estimators': [100, 200],
+            'regressor__clf__max_depth': [5, 10, 20, None],
+            'regressor__clf__min_samples_split': [2, 5, 10],
+            'regressor__clf__min_samples_leaf': [1, 2, 5]
+        },
+        scoring='neg_mean_absolute_error',
+        cv=5,          # 🔥 reduce from 10 → 5 for speed
+        n_jobs=-1
     )
 
-    # =========================================================
-    # 1) Construct and fit TPOT classifier
-    # =========================================================
-    start_time = time.time()
-    tpot = TPOTClassifier(
-        generations=1,
-        cv=3,
-        random_state=seed
-    )
-    tpot.fit(X_train, y_train)
-    end_time = time.time()
+    gs_xgb = GridSearchCV(
+            estimator=pipe_xgb_log,
+            param_grid={
+                'regressor__clf__n_estimators': [100, 200],
+                'regressor__clf__max_depth': [3, 5, 7],
+                'regressor__clf__learning_rate': [0.05, 0.1],
+                'regressor__clf__subsample': [0.8, 1.0],
+                'regressor__clf__colsample_bytree': [0.8, 1.0]
+            },
+            scoring='neg_mean_absolute_error',
+            cv=5,
+            n_jobs=-1
+        )
 
-    print("TPOT classifier finished in %.2f seconds" % (end_time - start_time))
+
+        # List of pipelines for ease of iteration
+    grids = [gs_dt,  gs_rf, gs_xgb]
+
+        # Dictionary of pipelines and classifier types for ease of reference
+    grid_dict = {0: 'Decision Tree', 1:'Random Forest', 2: 'XGBoost'}
+
+
+    print('Performing model optimizations...')
+
+    import numpy as np
+    import os
+    import re
+    import joblib
+    import pandas as pd
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, r2_score
 
     # =========================================================
-    # 2) Evaluate best pipeline on test set
+    # Setup
     # =========================================================
-    y_pred = tpot.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    print("Best pipeline test accuracy: %.3f" % acc)
+    os.makedirs("saved_models", exist_ok=True)
+
+    best_err = np.inf
+    best_clf = None
+    best_gs = None
+
+    results = []  # leaderboard
 
     # =========================================================
-    # 3) Inspect the best pipeline
+    # Loop through models
     # =========================================================
-    print("\nBest pipeline found by TPOT:\n")
-    print(tpot.fitted_pipeline_)
+    for idx, gs in enumerate(grids):
 
-    print("\nPipeline steps (one by one):")
-    for name, step in tpot.fitted_pipeline_.steps:
-        print(f"\nStep: {name}\n{step}\n")
+        model_label = grid_dict[idx]
+        print(f'\nEstimator: {model_label}')
+
+        # =====================================================
+        # Fit grid search
+        # =====================================================
+        gs.fit(X_train, y_train)
+
+        print('Best params:', gs.best_params_)
+        print('Best CV score:', gs.best_score_)
+
+        # =====================================================
+        # Safe filename
+        # =====================================================
+        safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', model_label)
+        model_path = f"saved_models/{safe_name}_best.joblib"
+
+        joblib.dump(gs.best_estimator_, model_path)
+        print(f"Saved model to {model_path}")
+
+        # =====================================================
+        # Predict
+        # =====================================================
+        y_pred = gs.predict(X_test)
+
+        # =====================================================
+        # Metrics
+        # =====================================================
+        mae = mean_absolute_error(y_test, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+        mape = mean_absolute_percentage_error(y_test, y_pred) * 100
+        bias = (y_pred - y_test).mean()
+        r2 = r2_score(y_test, y_pred)
+
+        print(f"Test MAE : {mae:.3f}")
+        print(f"Test RMSE: {rmse:.3f}")
+        print(f"Test MAPE: {mape:.2f}%")
+        print(f"Test Bias: {bias:.3f}")
+        print(f"Test R2  : {r2:.4f}")
+
+        # =====================================================
+        # Save results (leaderboard)
+        # =====================================================
+        results.append({
+            'model': model_label,
+            'MAE': mae,
+            'RMSE': rmse,
+            'MAPE (%)': mape,
+            'Bias': bias,
+            'R2': r2,
+            'model_path': model_path
+        })
+
+        # =====================================================
+        # Track best model (based on MAE)
+        # =====================================================
+        if mae < best_err:
+            best_err = mae
+            best_gs = gs
+            best_clf = idx
 
     # =========================================================
-    # 4) Save best pipeline to disk
+    # Save best overall model
     # =========================================================
-    model_path = "tpot_breastcancer_pipeline.joblib"
-    model = joblib.dump(tpot.fitted_pipeline_, model_path)
-    pipe = Pipeline([("pre", pre), ("model", model)])
-    best_pipe = joblib.load(model_path)
-    y_pred_loaded = best_pipe.predict(X_test)
- 
+    print('\n====================================')
+    print('Best model:', grid_dict[best_clf])
+    print('Best MAE:', best_err)
+    print('====================================')
+
+    best_model_path = "saved_models/best_overall_model.joblib"
+    joblib.dump(best_gs.best_estimator_, best_model_path)
+    best_decision_tree = joblib.load("saved_models/Decision_Tree_best.joblib")
+    best_model_rf = joblib.load("saved_models/Random_Forest_best.joblib")
+    best_model_xgb = joblib.load("saved_models/XGBoost_best.joblib")
+    best_model = joblib.load("saved_models/best_overall_model.joblib")
+
+
+
+    X_train = train_df[feats]
+    y_train = train_df[target]
+    best_model.fit(X_train, y_train)
+
     # ---- Predict/evaluate on today's holdout (now includes actual price fields) ----
     mae_today = None
     preds_df = pd.DataFrame()
     if not holdout_df.empty:
         X_h = holdout_df[feats]
-        y_hat = best_pipe.predict(X_h)
+        y_hat = best_model.predict(X_h)
 
-        cols = ["post_id", "scraped_at", "make", "model", "year", "mileage", "price", "color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
+        cols = ["post_id", "scraped_at", "make", "model", "year", "mileage", "price"]
         preds_df = holdout_df[cols].copy()
         preds_df["actual_price"] = holdout_df["price_num"]       # cleaned numeric truth
         preds_df["pred_price"]   = np.round(y_hat, 2)
