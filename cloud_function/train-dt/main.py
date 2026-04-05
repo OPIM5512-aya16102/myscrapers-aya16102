@@ -39,6 +39,9 @@ LOG_LEVEL      = os.getenv("LOG_LEVEL", "INFO")
 
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(message)s")
 
+def inverse_log10(x):
+        return 10 ** x
+
 class TopKEncoder(BaseEstimator, TransformerMixin):
         def __init__(self, top_k=10):
             self.top_k = top_k
@@ -167,10 +170,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         ("cat", cat_pipe, cat_cols),
         ("num", num_pipe, num_cols)
     ])
-
-
-    def inverse_log10(x):
-        return 10 ** x
 
  
     # Construct some pipelines
