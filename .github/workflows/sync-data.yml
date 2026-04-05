@@ -1,0 +1,131 @@
+name: Data Sync Hourly Predictions + Models to Repo
+run-name: Syncing hourly artifacts for ${{ github.ref_name }} by @${{ github.actor }}
+
+on:
+  schedule:
+    - cron: '45 * * * *'   # every hour at :45
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ vars.PROJECT_ID }}
+  BUCKET_NAME: ${{ vars.BUCKET_NAME }}
+  WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
+  DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
+
+  # GCS structure
+  GCS_BASE_PREFIX: "structured_v2/preds"
+
+  # Local repo output folder
+  OUTPUT_DIR: "results"
+
+jobs:
+  sync_data:
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------
+      # 1. Checkout repo
+      # -----------------------------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------
+      # 2. Auth to GCP
+      # -----------------------------------
+      - name: Auth (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      # -----------------------------------
+      # 3. Find latest run + download
+      # -----------------------------------
+      - name: Download latest predictions + models
+        id: sync
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "🔍 Finding latest run..."
+
+          RUNS=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ || true)
+
+          if [ -z "$RUNS" ]; then
+            echo "No runs found in GCS. Exiting."
+            exit 0
+          fi
+
+          LATEST_RUN_DIR=$(echo "$RUNS" | tail -1)
+
+          LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/||; s|/||")
+
+          echo "✅ Latest run_id: $LATEST_RUN_ID"
+
+          LOCAL_RUN_DIR="${OUTPUT_DIR}/${LATEST_RUN_ID}"
+          LOCAL_MODEL_DIR="${LOCAL_RUN_DIR}/models"
+
+          mkdir -p "$LOCAL_MODEL_DIR"
+
+          # ---------------------------
+          # Download ALL predictions
+          # ---------------------------
+          echo "⬇️ Downloading prediction files..."
+          gsutil -m cp \
+            gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/preds_*.csv \
+            "$LOCAL_RUN_DIR/" || echo "No prediction files found"
+
+          # ---------------------------
+          # Download ALL models
+          # ---------------------------
+          echo "⬇️ Downloading model files..."
+          gsutil -m cp \
+            gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/models/* \
+            "$LOCAL_MODEL_DIR/" || echo "No model files found"
+
+          # Export run_id
+          echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------
+      # 4. Commit + push
+      # -----------------------------------
+      - name: Commit and Push
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          RUN_ID="${{ steps.sync.outputs.run_id }}"
+
+          if [ -z "$RUN_ID" ]; then
+            echo "No run_id found. Skipping commit."
+            exit 0
+          fi
+
+          echo "📦 Preparing commit for run: $RUN_ID"
+
+          # Pull latest FIRST to avoid conflicts
+          git pull --rebase origin main
+
+          # Add files
+          git add ${OUTPUT_DIR}/$RUN_ID
+
+          # Commit (safe if nothing changed)
+          git commit -m "🤖 Sync: predictions + models for run $RUN_ID" || echo "Nothing to commit"
+
+          # Push
+          git push
