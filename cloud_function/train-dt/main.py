@@ -256,6 +256,8 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # Dictionary of pipelines and classifier types for ease of reference
     grid_dict = {0: 'Decision Tree', 1:'Random Forest', 2: 'XGBoost'}
 
+    X_train = train_df[feats]
+    y_train = train_df[target]
 
     print('Performing model optimizations...')
 
