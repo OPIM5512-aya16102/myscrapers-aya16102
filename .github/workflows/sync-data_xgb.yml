@@ -20,7 +20,7 @@ env:
   GCS_BASE_PREFIX: "structured_v2/preds"
 
   # Local output folder in repo
-  OUTPUT_DIR: "results_best"
+  OUTPUT_DIR: "results"
 
 jobs:
   sync_data:
@@ -83,7 +83,7 @@ jobs:
           # -------------------
           # Download models
           # -------------------
-          MODEL_SRC="gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/models/"
+          MODEL_SRC="gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/models/xgb.joblib"
 
           echo "Downloading models..."
           gsutil -m cp -r "$MODEL_SRC" "$LOCAL_MODEL_DIR/" || echo "No models found for this run"
