@@ -302,54 +302,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         joblib.dump(gs.best_estimator_, model_path)
         print(f"Saved model to {model_path}")
 
-        # =====================================================
-        # Predict
-        # =====================================================
-        y_pred = gs.predict(X_test)
-
-        # =====================================================
-        # Metrics
-        # =====================================================
-        mae = mean_absolute_error(y_test, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-        mape = mean_absolute_percentage_error(y_test, y_pred) * 100
-        bias = (y_pred - y_test).mean()
-        r2 = r2_score(y_test, y_pred)
-
-        print(f"Test MAE : {mae:.3f}")
-        print(f"Test RMSE: {rmse:.3f}")
-        print(f"Test MAPE: {mape:.2f}%")
-        print(f"Test Bias: {bias:.3f}")
-        print(f"Test R2  : {r2:.4f}")
-
-        # =====================================================
-        # Save results (leaderboard)
-        # =====================================================
-        results.append({
-            'model': model_label,
-            'MAE': mae,
-            'RMSE': rmse,
-            'MAPE (%)': mape,
-            'Bias': bias,
-            'R2': r2,
-            'model_path': model_path
-        })
-
-        # =====================================================
-        # Track best model (based on MAE)
-        # =====================================================
-        if mae < best_err:
-            best_err = mae
-            best_gs = gs
-            best_clf = idx
-
-    # =========================================================
-    # Save best overall model
-    # =========================================================
-    print('\n====================================')
-    print('Best model:', grid_dict[best_clf])
-    print('Best MAE:', best_err)
-    print('====================================')
 
     best_model_path = "saved_models/best_overall_model.joblib"
     joblib.dump(best_gs.best_estimator_, best_model_path)
