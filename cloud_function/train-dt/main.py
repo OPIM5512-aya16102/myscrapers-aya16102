@@ -36,6 +36,9 @@ logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s"
 
 # ---------------- GCS HELPERS ----------------
 def _upload_file_to_gcs(client, bucket_name, local_path, gcs_path):
+    if not isinstance(gcs_path, str):
+        raise ValueError(f"gcs_path must be a string, got {type(gcs_path)}")
+
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(gcs_path)
     blob.upload_from_filename(local_path)
@@ -248,8 +251,12 @@ def run_once(dry_run=False):
         df_out = make_preds(model)
         if df_out is not None:
             path = f"{base_path}/preds_{name}.csv"
+
+            local_tmp = f"/tmp/preds_{name}.csv"
+            df_out.to_csv(local_tmp, index=False)
+
             if not dry_run:
-                _upload_file_to_gcs(client, GCS_BUCKET, path, df_out)
+                _upload_file_to_gcs(client, GCS_BUCKET, local_tmp, path)
 
             pred_outputs[name] = path
 
