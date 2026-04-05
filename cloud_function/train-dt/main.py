@@ -323,7 +323,8 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         X_h = holdout_df[feats]
         y_hat = best_model.predict(X_h)
 
-        cols = ["post_id", "scraped_at", "make", "model", "year", "mileage", "price"]
+        cols = ["post_id", "scraped_at", "price", "make", "model", "year", "mileage", 'color', 'condition', 'transmission',
+        'fuel', 'city', 'state', 'zipcode']
         preds_df = holdout_df[cols].copy()
         preds_df["actual_price"] = holdout_df["price_num"]       # cleaned numeric truth
         preds_df["pred_price"]   = np.round(y_hat, 2)
