@@ -26,7 +26,8 @@ from sklearn.metrics import accuracy_score
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor    
-from sklearn.base import BaseEstimator, TransformerMixin    
+from sklearn.base import BaseEstimator, TransformerMixin
+from xgboost import XGBRegressor    
 
 # ---- ENV ----
 PROJECT_ID     = os.getenv("PROJECT_ID", "")
