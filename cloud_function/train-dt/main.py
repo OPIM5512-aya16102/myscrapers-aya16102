@@ -27,7 +27,9 @@ from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor    
 from sklearn.base import BaseEstimator, TransformerMixin
-from xgboost import XGBRegressor    
+from xgboost import XGBRegressor  
+from sklearn.model_selection import RandomizedSearchCV
+from scipy.stats import randint, uniform  
 
 # ---- ENV ----
 PROJECT_ID     = os.getenv("PROJECT_ID", "")
@@ -196,60 +198,58 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         func=np.log10,
         inverse_func=inverse_log10
 )
-    grid_params_dt = [{
-    'clf__max_depth': [3, 5, 10, 15, None],
-    'clf__min_samples_split': [2, 5, 10, 20],
-    'clf__min_samples_leaf': [1, 2, 5, 10]
-}]
+    grid_params_dt = {
+    'clf__max_depth': [None] + list(range(3, 20)),
+    'clf__min_samples_split': randint(2, 20),
+    'clf__min_samples_leaf': randint(1, 10)
+}
 
-    grid_params_rf = [{
-        'clf__n_estimators': [100, 200],
-        'clf__max_depth': [5, 10, 20, None],
-        'clf__min_samples_split': [2, 5, 10],
-        'clf__min_samples_leaf': [1, 2, 5]
-    }]
+    grid_params_rf = {
+    'regressor__clf__n_estimators': randint(50, 300),
+    'regressor__clf__max_depth': [None] + list(range(5, 30)),
+    'regressor__clf__min_samples_split': randint(2, 20),
+    'regressor__clf__min_samples_leaf': randint(1, 10)
+}
 
-    grid_params_xgb = [{
-        'clf__n_estimators': [100, 200],
-        'clf__max_depth': [3, 5, 7],
-        'clf__learning_rate': [0.05, 0.1],
-        'clf__subsample': [0.8, 1.0],
-        'clf__colsample_bytree': [0.8, 1.0]
-    }]
+    grid_params_xgb = {
+    'regressor__clf__n_estimators': randint(50, 300),
+    'regressor__clf__max_depth': randint(3, 10),
+    'regressor__clf__learning_rate': uniform(0.01, 0.2),
+    'regressor__clf__subsample': uniform(0.7, 0.3),
+    'regressor__clf__colsample_bytree': uniform(0.7, 0.3)
+}
 
     # Construct grid searches
 
-    gs_dt = GridSearchCV(estimator=pipe_dt,
-        param_grid=grid_params_dt,
-        scoring='neg_mean_absolute_error',
-        cv=10)
+    gs_dt = RandomizedSearchCV(
+    estimator=pipe_dt,
+    param_distributions=param_dist_dt,
+    n_iter=25,
+    scoring='neg_mean_absolute_error',
+    cv=5,
+    random_state=42,
+    n_jobs=-1
+)
 
-    gs_rf = GridSearchCV(
-        estimator=pipe_rf_log,
-        param_grid={
-            'regressor__clf__n_estimators': [100, 200],
-            'regressor__clf__max_depth': [5, 10, 20, None],
-            'regressor__clf__min_samples_split': [2, 5, 10],
-            'regressor__clf__min_samples_leaf': [1, 2, 5]
-        },
-        scoring='neg_mean_absolute_error',
-        cv=5,          # 🔥 reduce from 10 → 5 for speed
-        n_jobs=-1
-    )
+    gs_rf = RandomizedSearchCV(
+    estimator=pipe_rf_log,
+    param_distributions=param_dist_rf,
+    n_iter=25,
+    scoring='neg_mean_absolute_error',
+    cv=5,
+    random_state=42,
+    n_jobs=-1
+)
 
-    gs_xgb = GridSearchCV(
-            estimator=pipe_xgb_log,
-            param_grid={
-                'regressor__clf__n_estimators': [100, 200],
-                'regressor__clf__max_depth': [3, 5, 7],
-                'regressor__clf__learning_rate': [0.05, 0.1],
-                'regressor__clf__subsample': [0.8, 1.0],
-                'regressor__clf__colsample_bytree': [0.8, 1.0]
-            },
-            scoring='neg_mean_absolute_error',
-            cv=5,
-            n_jobs=-1
-        )
+    gs_xgb = RandomizedSearchCV(
+    estimator=pipe_xgb_log,
+    param_distributions=param_dist_xgb,
+    n_iter=25,
+    scoring='neg_mean_absolute_error',
+    cv=5,
+    random_state=42,
+    n_jobs=-1
+)
 
 
         # List of pipelines for ease of iteration
