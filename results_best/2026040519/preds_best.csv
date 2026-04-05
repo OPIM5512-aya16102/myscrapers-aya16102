@@ -1,0 +1,6 @@
+post_id,scraped_at,price,make,model,year,mileage,color,condition,transmission,fuel,city,state,zipcode,actual_price,pred_price
+7922279684,2026-04-05t06:00:46z,4900.0,nissan,rogue s,2015,133000,black,excellent,automatic,gas,shelton,ct,06484,4900.0,8023.09
+7923202182,2026-04-05t06:00:46z,6000.0,chevy,el camino,1986,1234567,maroon,good,automatic,gas,middlebury,ct,06762,6000.0,6476.42
+7923939433,2026-04-05t06:00:46z,6800.0,jeep,grand cherokee laredo,2009,117810,black,good,automatic,gas,west haven,ct,06516,6800.0,7995.6
+7925306868,2026-04-05t06:00:46z,18995.0,ford,f-150,2017,106743,red,,automatic,gas,bridgeport,ct,06606,18995.0,10828.48
+7925306908,2026-04-05t06:00:46z,15500.0,bmw,x2,2018,79633,black,good,automatic,gas,bridgeport,ct,06606,15500.0,15646.65
