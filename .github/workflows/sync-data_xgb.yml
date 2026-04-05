@@ -20,7 +20,7 @@ env:
   GCS_BASE_PREFIX: "structured_v2/preds"
 
   # Local output folder in repo
-  OUTPUT_DIR: "results"
+  OUTPUT_DIR: "results_xgb"
 
 jobs:
   sync_data:
