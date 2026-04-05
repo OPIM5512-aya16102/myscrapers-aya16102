@@ -147,6 +147,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     cat_cols = ['make_model', 'color', 'condition', 'transmission',
         'fuel', 'city', 'state']
     num_cols = ["age_num", "mileage_num", "miles_age_ratio_num"]
+    feats = cat_cols + num_cols
     make_model_col = ["make_model"]
     make_model_pipe = Pipeline([
     ("topk", TopKEncoder(top_k=15)),
