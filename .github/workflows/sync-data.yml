@@ -1,92 +1,117 @@
-name: Data Sync Hourly Predictions to Repo
-run-name: Syncing hourly predictions for ${{ github.ref_name }} by @${{ github.actor }} 
+name: Data Sync Hourly Predictions + Models to Repo
+run-name: Syncing hourly artifacts for ${{ github.ref_name }} by @${{ github.actor }}
+
 on:
   schedule:
-    - cron: '45 * * * *' # Every hour at 45 minutes past the hour
-  workflow_dispatch: 
+    - cron: '45 * * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write # REQUIRED to commit and push files
-  id-token: write # REQUIRED for Workload Identity Federation (WIF)
+  contents: write
+  id-token: write
 
-# Inherit variables from your existing setup
 env:
   PROJECT_ID: ${{ vars.PROJECT_ID }}
   BUCKET_NAME: ${{ vars.BUCKET_NAME }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
-  GCS_PREDS_PREFIX: "structured_v2/preds" # Base path for your prediction folders
-  OUTPUT_DIR: "results_best" # Local folder to store all timestamped files
+
+  # GCS structure
+  GCS_BASE_PREFIX: "structured_v2/preds"
+
+  # Local output folder in repo
+  OUTPUT_DIR: "results_best"
 
 jobs:
   sync_data:
     runs-on: ubuntu-latest
+
     steps:
-      # --- 1. SETUP & AUTHENTICATION ---
+      # ---------------------------
+      # 1. Checkout repo
+      # ---------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          # FIX: Explicitly grant the GITHUB_TOKEN write access for push/rebase
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ---------------------------
+      # 2. Auth to GCP
+      # ---------------------------
       - name: Auth (WIF) and Setup gcloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.DEPLOYER_SA }}
-      
-      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # --- 2. DOWNLOAD AND RENAME DATA ---
-      - name: Find Latest Run ID, Download, and Rename File
-        id: download_rename # Step ID used to reference outputs later
+      # ---------------------------
+      # 3. Find latest run + download artifacts
+      # ---------------------------
+      - name: Download latest predictions + models
+        id: sync
         shell: bash
         run: |
           set -euo pipefail
-          
-          # 2a. Find the LATEST folder/run_id in GCS
-          LATEST_RUN_DIR=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_PREDS_PREFIX}/*/ | tail -1)
-          
-          # 2b. Extract the timestamp (folder name, e.g., 2025120816)
-          LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_PREDS_PREFIX}/||; s|/||")
 
-          # 2c. Define file paths and save variables to GITHUB_OUTPUT
-          LOCAL_FILENAME="$LATEST_RUN_ID-preds_best.csv"
-          GCS_SOURCE_FILE="${{ env.GCS_PREDS_PREFIX }}/$LATEST_RUN_ID/preds_best.csv"
-          LOCAL_TARGET_FILE="${{ env.OUTPUT_DIR }}/$LOCAL_FILENAME"
-          
+          echo "Finding latest run..."
+
+          LATEST_RUN_DIR=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ | tail -1)
+
+          LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/||; s|/||")
+
+          echo "Latest run_id: $LATEST_RUN_ID"
+
+          LOCAL_RUN_DIR="${OUTPUT_DIR}/${LATEST_RUN_ID}"
+          LOCAL_MODEL_DIR="${LOCAL_RUN_DIR}/models"
+
+          mkdir -p "$LOCAL_MODEL_DIR"
+
+          # -------------------
+          # Download predictions
+          # -------------------
+          PRED_SRC="gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/preds_best.csv"
+          PRED_DST="${LOCAL_RUN_DIR}/preds_best.csv"
+
+          echo "Downloading predictions..."
+          gsutil cp "$PRED_SRC" "$PRED_DST"
+
+          # -------------------
+          # Download models
+          # -------------------
+          MODEL_SRC="gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/models/"
+
+          echo "Downloading models..."
+          gsutil -m cp -r "$MODEL_SRC" "$LOCAL_MODEL_DIR/" || echo "No models found for this run"
+
+          # -------------------
+          # Export outputs
+          # -------------------
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "filename=$LOCAL_FILENAME" >> "$GITHUB_OUTPUT"
-          
-          echo "Detected latest run ID: $LATEST_RUN_ID"
-          
-          # 2d. Create local folder and copy the file
-          mkdir -p ${{ env.OUTPUT_DIR }} 
-          gsutil cp gs://${BUCKET_NAME}/${GCS_SOURCE_FILE} ${LOCAL_TARGET_FILE}
-          
-          echo "Successfully copied: gs://${BUCKET_NAME}/${GCS_SOURCE_FILE} to ${LOCAL_TARGET_FILE}"
 
-      # --- 3. COMMIT AND PUSH ---
-      - name: Commit and Push New Timestamped File
-        if: success() 
+      # ---------------------------
+      # 4. Commit + push changes
+      # ---------------------------
+      - name: Commit and Push
+        if: success()
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
-          # Retrieve variables from the previous step's output
-          FILENAME="${{ steps.download_rename.outputs.filename }}"
-          RUN_ID="${{ steps.download_rename.outputs.run_id }}"
-          
-          # Stage the newly created timestamped file
-          git add ${{ env.OUTPUT_DIR }}/$FILENAME
-          
-          # Commit the new file
-          git commit -m "🤖 Data Sync: Add hourly prediction file for run $RUN_ID"
-          
-          # FIX 2: Pull the latest remote changes and rebase to resolve 'rejected' error
-          git pull --rebase origin main 
-          
-          # Push the changes
+          set -euo pipefail
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          RUN_ID="${{ steps.sync.outputs.run_id }}"
+
+          echo "Staging artifacts for run $RUN_ID"
+
+          git add results_best/$RUN_ID
+
+          git commit -m "🤖 Sync: predictions + models for run $RUN_ID" || echo "Nothing to commit"
+
+          git pull --rebase origin main
+
           git push
