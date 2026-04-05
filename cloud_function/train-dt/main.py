@@ -85,7 +85,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     df["year_num"]    = _clean_numeric(df["year"])
     df["mileage_num"] = _clean_numeric(df["mileage"])
     df["age_num"] = _clean_numeric(df["age"])
-    df["mileage_age_ratio_num"] = _clean_numeric(df["mileas_age_ratio"])
+    df["miles_age_ratio_num"] = _clean_numeric(df["miles_age_ratio"])
 
     valid_price_rows = int(df["price_num"].notna().sum())
     logging.info("Rows total=%d | with valid numeric price=%d", orig_rows, valid_price_rows)
