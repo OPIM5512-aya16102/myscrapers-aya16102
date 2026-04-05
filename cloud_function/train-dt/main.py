@@ -43,25 +43,26 @@ def inverse_log10(x):
         return 10 ** x
 
 class TopKEncoder(BaseEstimator, TransformerMixin):
-        def __init__(self, top_k=10):
-            self.top_k = top_k
+    def __init__(self, top_k=10):
+        self.top_k = top_k
 
-        def fit(self, X, y=None):
-            # assume X is a DataFrame or 2D array
-            col = X.columns[0] if hasattr(X, "columns") else 0
-            self.col = col
+    def fit(self, X, y=None):
+        X = pd.DataFrame(X)
+        self.col = X.columns[0]
+        self.top_categories_ = (
+            X.iloc[:, 0].value_counts().nlargest(self.top_k).index
+        )
+        return self
 
-            values = X.iloc[:, 0] if hasattr(X, "iloc") else X[:, 0]
-            self.top_categories_ = values.value_counts().nlargest(self.top_k).index
-            return self
+    def transform(self, X):
+        X = pd.DataFrame(X)
+        col_values = X.iloc[:, 0]
 
-        def transform(self, X):
-            X = X.copy()
-            col_values = X.iloc[:, 0] if hasattr(X, "iloc") else X[:, 0]
-
-            return pd.DataFrame({
-                self.col: col_values.where(col_values.isin(self.top_categories_), "other")
-            })
+        return pd.DataFrame({
+            self.col: col_values.where(
+                col_values.isin(self.top_categories_), "other"
+            )
+        })
 
 def _read_csv_from_gcs(client: storage.Client, bucket: str, key: str) -> pd.DataFrame:
     b = client.bucket(bucket)
@@ -180,7 +181,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     pipe_rf = Pipeline([('preprocessor', preprocessor),
                 ('clf', RandomForestRegressor(random_state=42))])
 
-    from xgboost import XGBRegressor
     pipe_xgb = Pipeline([
         ('preprocessor', preprocessor),
         ('clf', XGBRegressor(random_state=42))])
@@ -261,6 +261,10 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     X_train = train_df[feats]
     y_train = train_df[target]
 
+    X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.2)
+
+    
+    
     print('Performing model optimizations...')
 
     
@@ -287,7 +291,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # =====================================================
         # Fit grid search
         # =====================================================
-        gs.fit(X_train, y_train)
+        gs.fit(X_tr, y_tr)
 
         print('Best params:', gs.best_params_)
         print('Best CV score:', gs.best_score_)
@@ -304,16 +308,16 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # =====================================================
         # Predict
         # =====================================================
-        y_pred = gs.predict(X_train)
+        y_pred = gs.predict(X_val)
 
         # =====================================================
         # Metrics
         # =====================================================
-        mae = mean_absolute_error(y_train, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_train, y_pred))
-        mape = mean_absolute_percentage_error(y_train, y_pred) * 100
-        bias = (y_pred - y_train).mean()
-        r2 = r2_score(y_train, y_pred)
+        mae = mean_absolute_error(y_tr, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_tr, y_pred))
+        mape = mean_absolute_percentage_error(y_tr, y_pred) * 100
+        bias = (y_pred - y_tr).mean()
+        r2 = r2_score(y_tr, y_pred)
 
         print(f"Test MAE : {mae:.3f}")
         print(f"Test RMSE: {rmse:.3f}")
