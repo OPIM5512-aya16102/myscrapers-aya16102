@@ -3,7 +3,7 @@ run-name: Syncing hourly artifacts for ${{ github.ref_name }} by @${{ github.act
 
 on:
   schedule:
-    - cron: '45 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
