@@ -41,6 +41,11 @@ LOG_LEVEL      = os.getenv("LOG_LEVEL", "INFO")
 
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(message)s")
 
+def _upload_file_to_gcs(client, bucket_name, local_path, gcs_path):
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(gcs_path)
+    blob.upload_from_filename(local_path)
+
 def inverse_log10(x):
         return 10 ** x
 
@@ -301,9 +306,15 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # =====================================================
         safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', model_label)
         model_path = f"saved_models/{safe_name}_best.joblib"
+        gcs_path = f"{OUTPUT_PREFIX}/models/{safe_name}_best.joblib"
 
+        # 1. Save locally (temporary)
         joblib.dump(gs.best_estimator_, model_path)
-        print(f"Saved model to {model_path}")
+
+        # 2. Upload to GCS (persistent)
+        if not dry_run:
+            _upload_file_to_gcs(client, GCS_BUCKET, model_path, gcs_path)
+            logging.info("Uploaded model to gs://%s/%s", GCS_BUCKET, gcs_path)
 
         # =====================================================
         # Predict
@@ -354,9 +365,14 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     print('Best MAE:', best_err)
     print('====================================')
 
-    best_model_path = "saved_models/best_overall_model.joblib"
-    joblib.dump(best_gs.best_estimator_, best_model_path)
-    best_model = joblib.load(best_model_path)
+    best_model_path_local = "saved_models/best_overall_model.joblib"
+    best_model_path_gcs = f"{OUTPUT_PREFIX}/models/best_overall_model.joblib"
+
+    joblib.dump(best_gs.best_estimator_, best_model_path_local)
+
+    if not dry_run:
+        _upload_file_to_gcs(client, GCS_BUCKET, best_model_path_local, best_model_path_gcs)
+        logging.info("Uploaded best model to gs://%s/%s", GCS_BUCKET, best_model_path_gcs)
     best_decision_tree = joblib.load("saved_models/Decision_Tree_best.joblib")
     best_model_rf = joblib.load("saved_models/Random_Forest_best.joblib")
     best_model_xgb = joblib.load("saved_models/XGBoost_best.joblib")
