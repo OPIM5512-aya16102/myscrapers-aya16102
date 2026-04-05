@@ -270,7 +270,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     # =========================================================
     os.makedirs("saved_models", exist_ok=True)
 
-    best_err = np.inf
+    best_cv_mae = np.inf  
     best_clf = None
     best_gs = None
 
@@ -279,35 +279,77 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     # =========================================================
     # Loop through models
     # =========================================================
-    for idx, gs in enumerate(grids):
+    for idx, gs in enumerate(grids): 
 
         model_label = grid_dict[idx]
-        print(f'\nEstimator: {model_label}')
+        print(f'\nEstimator: {}')
 
         # =====================================================
-        # Fit grid search
+        # Fit grid search (This inherently does CV on training data)
         # =====================================================
         gs.fit(X_train, y_train)
 
         print('Best params:', gs.best_params_)
-        print('Best CV score:', gs.best_score_)
+        
+        # Extract the cross-validated MAE directly from GridSearch
+        # (Multiply by -1 because scoring='neg_mean_absolute_error')
+        cv_mae = -gs.best_score_
+        print(f'CV MAE (Out-of-Fold) : {cv_mae:.3f}')
 
         # =====================================================
-        # Safe filename
+        # Save the best model for THIS specific algorithm (DT, RF, XGB)
         # =====================================================
-        safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', model_label)
-        model_path = f"saved_models/{safe_name}_best.joblib"
+        # Formats name: "Decision Tree" -> "decision_tree"
+        safe_name = model_label.replace(' ', '_').lower() 
+        model_path = f"saved_models/best_{}.joblib"
 
         joblib.dump(gs.best_estimator_, model_path)
-        print(f"Saved model to {model_path}")
+        print(f"Saved best {} model to {}")
 
+        # =====================================================
+        # Predict on Training Data ONLY
+        # =====================================================
+        y_pred_train = gs.predict(X_train)
+
+        # =====================================================
+        # Metrics (Calculated on Training Data)
+        # =====================================================
+        train_mae = mean_absolute_error(y_train, y_pred_train)
+        train_rmse = np.sqrt(mean_squared_error(y_train, y_pred_train))
+        train_mape = mean_absolute_percentage_error(y_train, y_pred_train) * 100
+        train_bias = (y_pred_train - y_train).mean()
+        train_r2 = r2_score(y_train, y_pred_train)
+
+        print(f"Train MAE  : {train_mae:.3f}")
+        print(f"Train RMSE : {train_rmse:.3f}")
+        print(f"Train MAPE : {train_mape:.2f}%")
+        print(f"Train Bias : {train_bias:.3f}")
+        print(f"Train R2   : {train_r2:.4f}")
+
+        # =====================================================
+        # Save results (leaderboard)
+        # =====================================================
+        results.append({
+            'model': model_label,
+            'CV_MAE': cv_mae,          # Out-of-fold error (used for ranking)
+            'Train_MAE': train_mae,    # In-sample error
+            'Train_RMSE': train_rmse,
+            'Train_MAPE (%)': train_mape,
+            'Train_Bias': train_bias,
+            'Train_R2': train_r2,
+            'model_path': model_path})
+
+            # =====================================================
+            # Track best OVERALL model (based on CV MAE)
+            # =====================================================
+        if cv_mae < best_cv_mae:
+            best_cv_mae = cv_mae
+            best_gs = gs
+            best_clf = idx
 
     best_model_path = "saved_models/best_overall_model.joblib"
     joblib.dump(best_gs.best_estimator_, best_model_path)
-    best_decision_tree = joblib.load("saved_models/Decision_Tree_best.joblib")
-    best_model_rf = joblib.load("saved_models/Random_Forest_best.joblib")
-    best_model_xgb = joblib.load("saved_models/XGBoost_best.joblib")
-    best_model = joblib.load("saved_models/best_overall_model.joblib")
+    best_model = joblib.load(best_model_path)
 
 
 
