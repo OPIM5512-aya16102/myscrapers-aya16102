@@ -15,7 +15,7 @@ env:
   BUCKET_NAME: ${{ vars.BUCKET_NAME }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
-  GCS_PREDS_PREFIX: "structured_v2/preds_best" # Base path for your prediction folders
+  GCS_PREDS_PREFIX: "structured_v2/preds_dt" # Base path for your prediction folders
   OUTPUT_DIR: "results" # Local folder to store all timestamped files
 
 jobs:
@@ -53,8 +53,8 @@ jobs:
           LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_PREDS_PREFIX}/||; s|/||")
 
           # 2c. Define file paths and save variables to GITHUB_OUTPUT
-          LOCAL_FILENAME="$LATEST_RUN_ID-preds_best.csv"
-          GCS_SOURCE_FILE="${{ env.GCS_PREDS_PREFIX }}/$LATEST_RUN_ID/preds_best.csv"
+          LOCAL_FILENAME="$LATEST_RUN_ID-preds_dt.csv"
+          GCS_SOURCE_FILE="${{ env.GCS_PREDS_PREFIX }}/$LATEST_RUN_ID/preds_dt.csv"
           LOCAL_TARGET_FILE="${{ env.OUTPUT_DIR }}/$LOCAL_FILENAME"
           
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
