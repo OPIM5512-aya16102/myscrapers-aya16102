@@ -14,9 +14,19 @@ from sklearn.metrics import mean_absolute_error
 import joblib
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, r2_score
 from sklearn.base import BaseEstimator, TransformerMixin
-
-    
-    
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import accuracy_score
+#from sklearn.externals import joblib
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor    
+from sklearn.base import BaseEstimator, TransformerMixin    
 
 # ---- ENV ----
 PROJECT_ID     = os.getenv("PROJECT_ID", "")
@@ -158,8 +168,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     def inverse_log10(x):
         return 10 ** x
 
-    from sklearn.compose import TransformedTargetRegressor
-    from sklearn.model_selection import GridSearchCV
+ 
     # Construct some pipelines
     pipe_dt = Pipeline([('preprocessor', preprocessor),
                 ('clf', DecisionTreeRegressor(random_state=42))])
