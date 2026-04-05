@@ -83,7 +83,7 @@ jobs:
           # -------------------
           # Download models
           # -------------------
-          MODEL_SRC="gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/models/"
+          MODEL_SRC="gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/models/dt.joblib"
 
           echo "Downloading models..."
           gsutil -m cp -r "$MODEL_SRC" "$LOCAL_MODEL_DIR/" || echo "No models found for this run"
