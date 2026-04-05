@@ -39,6 +39,27 @@ LOG_LEVEL      = os.getenv("LOG_LEVEL", "INFO")
 
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(message)s")
 
+class TopKEncoder(BaseEstimator, TransformerMixin):
+        def __init__(self, top_k=10):
+            self.top_k = top_k
+
+        def fit(self, X, y=None):
+            # assume X is a DataFrame or 2D array
+            col = X.columns[0] if hasattr(X, "columns") else 0
+            self.col = col
+
+            values = X.iloc[:, 0] if hasattr(X, "iloc") else X[:, 0]
+            self.top_categories_ = values.value_counts().nlargest(self.top_k).index
+            return self
+
+        def transform(self, X):
+            X = X.copy()
+            col_values = X.iloc[:, 0] if hasattr(X, "iloc") else X[:, 0]
+
+            return pd.DataFrame({
+                self.col: col_values.where(col_values.isin(self.top_categories_), "other")
+            })
+
 def _read_csv_from_gcs(client: storage.Client, bucket: str, key: str) -> pd.DataFrame:
     b = client.bucket(bucket)
     blob = b.blob(key)
@@ -90,26 +111,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         df['miles_age_ratio'] = df['mileage'] / df['age']
         return(df)
     
-    class TopKEncoder(BaseEstimator, TransformerMixin):
-        def __init__(self, top_k=10):
-            self.top_k = top_k
 
-        def fit(self, X, y=None):
-            # assume X is a DataFrame or 2D array
-            col = X.columns[0] if hasattr(X, "columns") else 0
-            self.col = col
-
-            values = X.iloc[:, 0] if hasattr(X, "iloc") else X[:, 0]
-            self.top_categories_ = values.value_counts().nlargest(self.top_k).index
-            return self
-
-        def transform(self, X):
-            X = X.copy()
-            col_values = X.iloc[:, 0] if hasattr(X, "iloc") else X[:, 0]
-
-            return pd.DataFrame({
-                self.col: col_values.where(col_values.isin(self.top_categories_), "other")
-            })
 
     df = clean_data(df)
     # --- Clean numerics BEFORE counting/dropping ---
