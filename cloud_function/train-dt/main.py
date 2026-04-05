@@ -198,20 +198,20 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         func=np.log10,
         inverse_func=inverse_log10
 )
-    grid_params_dt = {
+    param_dist_dt = {
     'clf__max_depth': [None] + list(range(3, 20)),
     'clf__min_samples_split': randint(2, 20),
     'clf__min_samples_leaf': randint(1, 10)
 }
 
-    grid_params_rf = {
+    param_dist_rf = {
     'regressor__clf__n_estimators': randint(50, 300),
     'regressor__clf__max_depth': [None] + list(range(5, 30)),
     'regressor__clf__min_samples_split': randint(2, 20),
     'regressor__clf__min_samples_leaf': randint(1, 10)
 }
 
-    grid_params_xgb = {
+    param_dist_xgb = {
     'regressor__clf__n_estimators': randint(50, 300),
     'regressor__clf__max_depth': randint(3, 10),
     'regressor__clf__learning_rate': uniform(0.01, 0.2),
