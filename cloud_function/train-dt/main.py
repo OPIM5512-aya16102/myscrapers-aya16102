@@ -224,7 +224,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     gs_dt = RandomizedSearchCV(
     estimator=pipe_dt,
     param_distributions=param_dist_dt,
-    n_iter=25,
+    n_iter=10,
     scoring='neg_mean_absolute_error',
     cv=5,
     random_state=42,
@@ -234,7 +234,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     gs_rf = RandomizedSearchCV(
     estimator=pipe_rf_log,
     param_distributions=param_dist_rf,
-    n_iter=25,
+    n_iter=10,
     scoring='neg_mean_absolute_error',
     cv=5,
     random_state=42,
@@ -244,7 +244,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     gs_xgb = RandomizedSearchCV(
     estimator=pipe_xgb_log,
     param_distributions=param_dist_xgb,
-    n_iter=25,
+    n_iter=10,
     scoring='neg_mean_absolute_error',
     cv=5,
     random_state=42,
@@ -364,45 +364,85 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     X_train = train_df[feats]
     y_train = train_df[target]
-    best_model.fit(X_train, y_train)
 
-    # ---- Predict/evaluate on today's holdout (now includes actual price fields) ----
-    mae_today = None
-    preds_df = pd.DataFrame()
-    if not holdout_df.empty:
+    # =========================================================
+    # Generate predictions for ALL models
+    # =========================================================
+    outputs = []
+
+    def make_preds_df(model, suffix):
+        if holdout_df.empty:
+            return None, None
+
         X_h = holdout_df[feats]
-        y_hat = best_model.predict(X_h)
+        y_hat = model.predict(X_h)
 
-        cols = ["post_id", "scraped_at", "price", "make", "model", "year", "mileage", 'color', 'condition', 'transmission',
-        'fuel', 'city', 'state', 'zipcode']
-        preds_df = holdout_df[cols].copy()
-        preds_df["actual_price"] = holdout_df["price_num"]       # cleaned numeric truth
-        preds_df["pred_price"]   = np.round(y_hat, 2)
+        cols = ["post_id", "scraped_at", "price", "make", "model", "year", "mileage",
+                'color', 'condition', 'transmission', 'fuel', 'city', 'state', 'zipcode']
+        cols = [c for c in cols if c in holdout_df.columns]
 
+        df_out = holdout_df[cols].copy()
+        df_out["actual_price"] = holdout_df["price_num"]
+        df_out["pred_price"] = np.round(y_hat, 2)
+
+        mae_val = None
         if holdout_df["price_num"].notna().any():
             y_true = holdout_df["price_num"]
             mask = y_true.notna()
             if mask.any():
-                mae_today = float(mean_absolute_error(y_true[mask], y_hat[mask]))
+                mae_val = float(mean_absolute_error(y_true[mask], y_hat[mask]))
 
-    # --- Output path: HOURLY folder structure ---
+        return df_out, mae_val
+
+
+    # =========================================================
+    # Models to evaluate
+    # =========================================================
+    models = {
+        "best": best_gs.best_estimator_,
+        "dt": joblib.load("saved_models/Decision_Tree_best.joblib"),
+        "rf": joblib.load("saved_models/Random_Forest_best.joblib"),
+        "xgb": joblib.load("saved_models/XGBoost_best.joblib")
+    }
+
     now_utc = pd.Timestamp.utcnow().tz_convert("UTC")
-    out_key = f"{OUTPUT_PREFIX}/{now_utc.strftime('%Y%m%d%H')}/preds.csv"
+    base_path = f"{OUTPUT_PREFIX}/{now_utc.strftime('%Y%m%d%H')}"
 
-    if not dry_run and len(preds_df) > 0:
-        _write_csv_to_gcs(client, GCS_BUCKET, out_key, preds_df)
-        logging.info("Wrote predictions to gs://%s/%s (%d rows)", GCS_BUCKET, out_key, len(preds_df))
-    else:
-        logging.info("Dry run or no holdout rows; skip write. Would write to gs://%s/%s", GCS_BUCKET, out_key)
+    mae_summary = {}
 
+    # =========================================================
+    # Loop + write outputs
+    # =========================================================
+    for name, model in models.items():
+
+        preds_df, mae_val = make_preds_df(model, name)
+
+        if preds_df is None or len(preds_df) == 0:
+            logging.info(f"No data for {name}, skipping...")
+            continue
+
+        out_key = f"{base_path}/preds_{name}.csv"
+
+        if not dry_run:
+            _write_csv_to_gcs(client, GCS_BUCKET, out_key, preds_df)
+            logging.info("Wrote %s (%d rows)", out_key, len(preds_df))
+        else:
+            logging.info("Dry run: would write %s", out_key)
+
+        mae_summary[name] = mae_val
+
+
+    # =========================================================
+    # Final return (ONLY ONE RETURN)
+    # =========================================================
     return {
         "status": "ok",
         "today_local": str(today_local),
         "train_rows": int(len(train_df)),
         "holdout_rows": int(len(holdout_df)),
         "valid_price_rows": valid_price_rows,
-        "mae_today": mae_today,
-        "output_key": out_key,
+        "mae_by_model": mae_summary,
+        "output_prefix": base_path,
         "dry_run": dry_run,
         "timezone": TIMEZONE,
     }
