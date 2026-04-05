@@ -313,11 +313,11 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # =====================================================
         # Metrics
         # =====================================================
-        mae = mean_absolute_error(y_tr, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_tr, y_pred))
-        mape = mean_absolute_percentage_error(y_tr, y_pred) * 100
-        bias = (y_pred - y_tr).mean()
-        r2 = r2_score(y_tr, y_pred)
+        mae = mean_absolute_error(y_val, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+        mape = mean_absolute_percentage_error(y_val, y_pred) * 100
+        bias = (y_pred - y_val).mean()
+        r2 = r2_score(y_val, y_pred)
 
         print(f"Test MAE : {mae:.3f}")
         print(f"Test RMSE: {rmse:.3f}")
