@@ -15,7 +15,7 @@ env:
   BUCKET_NAME: ${{ vars.BUCKET_NAME }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
-  GCS_PREDS_PREFIX: "structured_v2/preds_xgb" # Base path for your prediction folders
+  GCS_PREDS_PREFIX: "structured_v2/preds" # Base path for your prediction folders
   OUTPUT_DIR: "results_xgb" # Local folder to store all timestamped files
 
 jobs:
