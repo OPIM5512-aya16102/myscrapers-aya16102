@@ -93,13 +93,12 @@ def run_once(dry_run=False):
     df["zipcode"] = df["zipcode"].astype(str).str.zfill(5)
     df["make_model"] = df["make"] + "_" + df["model"]
     df["age"] = 2026 - df["year"]
-    df["miles_age_ratio"] = df["mileage"] / df["age"]
+    
 
     df["price_num"] = clean_numeric(df["price"])
     df["age_num"] = clean_numeric(df["age"])
     df["mileage_num"] = clean_numeric(df["mileage"])
-    df["miles_age_ratio_num"] = clean_numeric(df["miles_age_ratio"])
-
+    
     df = df[df["price_num"].notna()]
 
     if len(df) < 40:
@@ -107,7 +106,7 @@ def run_once(dry_run=False):
 
     # -------- FEATURES --------
     cat_cols = ["make_model","color","condition","transmission","fuel","city","state"]
-    num_cols = ["age_num","mileage_num","miles_age_ratio_num"]
+    num_cols = ["age_num","mileage_num"]
 
     preprocessor = ColumnTransformer([
         ("make_model", Pipeline([
@@ -122,10 +121,20 @@ def run_once(dry_run=False):
     ])
 
     models = {
-        "dt": DecisionTreeRegressor(),
-        "rf": RandomForestRegressor(),
-        "xgb": XGBRegressor()
-    }
+    "dt": DecisionTreeRegressor(),
+
+    "rf": TransformedTargetRegressor(
+        regressor=RandomForestRegressor(),
+        func=log10_transform,
+        inverse_func=inverse_log10
+    ),
+
+    "xgb": TransformedTargetRegressor(
+        regressor=XGBRegressor(),
+        func=log10_transform,
+        inverse_func=inverse_log10
+    )
+}
 
     X = df[cat_cols + num_cols]
     y = df["price_num"]
@@ -146,8 +155,9 @@ def run_once(dry_run=False):
         pipe.fit(X_tr, y_tr)
                 # ---------------- FEATURE IMPORTANCE ----------------
         clf = pipe.named_steps["clf"]
+        base_model = clf.regressor_ if hasattr(clf, "regressor_") else clf
 
-        if hasattr(clf, "feature_importances_"):
+        if hasattr(base_model, "feature_importances_"):
             try:
                 feat_names = get_feature_names(pipe.named_steps["preprocessor"])
                 importances = clf.feature_importances_
