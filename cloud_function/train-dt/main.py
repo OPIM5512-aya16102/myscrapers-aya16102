@@ -169,8 +169,10 @@ def run_once(dry_run=False):
                 if not dry_run:
                     upload_file(client, fi_path, f"{base_path}/plots/{name}_feature_importance.png")
 
-                # ---------------- PDP (top 3 features) ----------------
+                # ---------------- PDP (TOP 3 ONLY - SAFE ORIGINAL FEATURES) ----------------
+
                 top_feats = imp_df["feature"].head(3).tolist()
+                top_feats = [f for f in top_feats if isinstance(f, str)]
 
                 for f in top_feats:
                     try:
@@ -179,15 +181,22 @@ def run_once(dry_run=False):
                         PartialDependenceDisplay.from_estimator(
                             pipe,
                             X_val,
-                            [f]
+                            features=[f],
+                            kind="average"
                         )
 
-                        pdp_path = f"/tmp/{name}_pdp_{f}.png"
+                        safe_f = f.replace("/", "_").replace(" ", "_")
+
+                        pdp_path = f"/tmp/{name}_pdp_{safe_f}.png"
                         plt.savefig(pdp_path, bbox_inches="tight")
                         plt.close()
 
                         if not dry_run:
-                            upload_file(client, pdp_path, f"{base_path}/plots/{name}_pdp_{f}.png")
+                            upload_file(
+                                client,
+                                pdp_path,
+                                f"{base_path}/plots/{name}_pdp_{safe_f}.png"
+                            )
 
                     except Exception as e:
                         logging.warning(f"PDP failed for {name} - {f}: {e}")
