@@ -171,34 +171,54 @@ def run_once(dry_run=False):
             logging.info(f"{name} TOP FEATURES: {top_feats}")
 
             # ---------------- PDP ----------------
-            X_val_trans = pipe.named_steps["preprocessor"].transform(X_val)
+            pre = pipe.named_steps["preprocessor"]
+            model = pipe.named_steps["clf"]
+            base_model = model.regressor_ if hasattr(model, "regressor_") else model
 
-            feat_names_full = get_feature_names(pipe.named_steps["preprocessor"])
+            # transform data
+            X_val_trans = pre.transform(X_val)
+
+            # get encoded feature names
+            feat_names = get_feature_names(pre)
+
+            # top 3 features from importance (encoded space)
+            top_feats = imp_df["feature"].head(3).tolist()
+
+            # map names → indices
+            valid_idx = []
+            valid_names = []
 
             for f in top_feats:
+                if f in feat_names:
+                    idx = feat_names.index(f)
+                    valid_idx.append(idx)
+                    valid_names.append(f)
+
+            logging.info(f"PDP features: {valid_names}")
+
+            for f_name, idx in zip(valid_names, valid_idx):
 
                 try:
-                    if f not in X_val.columns:
-                        continue
-
                     plt.figure()
 
                     PartialDependenceDisplay.from_estimator(
                         base_model,
                         X_val_trans,
-                        features=[f],
+                        features=[idx],   # IMPORTANT: index, not name
                         kind="average"
                     )
 
-                    path = f"/tmp/{name}_pdp_{f}.png"
+                    safe = f_name.replace("/", "_").replace(" ", "_")
+
+                    path = f"/tmp/{name}_pdp_{safe}.png"
                     plt.savefig(path, bbox_inches="tight")
                     plt.close()
 
                     if not dry_run:
-                        upload_file(client, path, f"{base_path}/plots/{name}_pdp_{f}.png")
+                        upload_file(client, path, f"{base_path}/plots/{name}_pdp_{safe}.png")
 
                 except Exception as e:
-                    logging.warning(f"PDP failed {name} {f}: {e}")
+                    logging.warning(f"PDP failed {name} {f_name}: {e}")
 
         # ---------------- METRICS ----------------
         preds = pipe.predict(X_val)
