@@ -15,6 +15,8 @@ from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import TransformedTargetRegressor
+import matplotlib.pyplot as plt
+from sklearn.inspection import PartialDependenceDisplay
 
 import joblib
 from scipy.stats import randint
@@ -38,6 +40,24 @@ def read_csv(client):
     return pd.read_csv(io.BytesIO(blob.download_as_bytes()))
 
 # ---------------- HELPERS ----------------
+def get_feature_names(preprocessor):
+    names = []
+
+    for name, trans, cols in preprocessor.transformers_:
+        if name == "num":
+            names.extend(cols)
+        else:
+            try:
+                ohe = trans.named_steps.get("oh", None)
+                if ohe:
+                    names.extend(ohe.get_feature_names_out(cols))
+                else:
+                    names.extend(cols)
+            except:
+                names.extend(cols)
+
+    return names
+
 class TopKEncoder(BaseEstimator, TransformerMixin):
     def __init__(self, top_k=10):
         self.top_k = top_k
@@ -124,7 +144,56 @@ def run_once(dry_run=False):
         ])
 
         pipe.fit(X_tr, y_tr)
+                # ---------------- FEATURE IMPORTANCE ----------------
+        clf = pipe.named_steps["clf"]
 
+        if hasattr(clf, "feature_importances_"):
+            try:
+                feat_names = get_feature_names(pipe.named_steps["preprocessor"])
+                importances = clf.feature_importances_
+
+                imp_df = pd.DataFrame({
+                    "feature": feat_names,
+                    "importance": importances
+                }).sort_values("importance", ascending=False)
+
+                # Plot top 15
+                plt.figure()
+                imp_df.head(15).plot.barh(x="feature", y="importance")
+                plt.title(f"{name} Feature Importance")
+
+                fi_path = f"/tmp/{name}_feature_importance.png"
+                plt.savefig(fi_path, bbox_inches="tight")
+                plt.close()
+
+                if not dry_run:
+                    upload_file(client, fi_path, f"{base_path}/plots/{name}_feature_importance.png")
+
+                # ---------------- PDP (top 3 features) ----------------
+                top_feats = imp_df["feature"].head(3).tolist()
+
+                for f in top_feats:
+                    try:
+                        plt.figure()
+
+                        PartialDependenceDisplay.from_estimator(
+                            pipe,
+                            X_val,
+                            [f]
+                        )
+
+                        pdp_path = f"/tmp/{name}_pdp_{f}.png"
+                        plt.savefig(pdp_path, bbox_inches="tight")
+                        plt.close()
+
+                        if not dry_run:
+                            upload_file(client, pdp_path, f"{base_path}/plots/{name}_pdp_{f}.png")
+
+                    except Exception as e:
+                        logging.warning(f"PDP failed for {name} - {f}: {e}")
+
+            except Exception as e:
+                logging.warning(f"Feature importance failed for {name}: {e}")
         # -------- SAVE MODEL --------
         local_model = f"/tmp/{name}.joblib"
         joblib.dump(pipe, local_model)
