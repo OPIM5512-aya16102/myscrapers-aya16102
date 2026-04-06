@@ -7,7 +7,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 from sklearn.inspection import PartialDependenceDisplay
 
 import joblib
-from scipy.stats import randint
 
 # ---------------- ENV ----------------
 PROJECT_ID = os.getenv("PROJECT_ID", "")
@@ -80,11 +79,11 @@ def clean_numeric(s):
         errors="coerce"
     )
 
+def log10_transform(x):
+    return np.log10(np.clip(x, 1, None))  # SAFE
+
 def inverse_log10(x):
     return 10 ** x
-
-def log10_transform(x):
-    return np.log10(x)
 
 # ---------------- MAIN ----------------
 def run_once(dry_run=False):
@@ -96,12 +95,11 @@ def run_once(dry_run=False):
     df["zipcode"] = df["zipcode"].astype(str).str.zfill(5)
     df["make_model"] = df["make"] + "_" + df["model"]
     df["age"] = 2026 - df["year"]
-    
 
     df["price_num"] = clean_numeric(df["price"])
     df["age_num"] = clean_numeric(df["age"])
     df["mileage_num"] = clean_numeric(df["mileage"])
-    
+
     df = df[df["price_num"].notna()]
 
     if len(df) < 40:
@@ -124,20 +122,20 @@ def run_once(dry_run=False):
     ])
 
     models = {
-    "dt": DecisionTreeRegressor(),
+        "dt": DecisionTreeRegressor(),
 
-    "rf": TransformedTargetRegressor(
-        regressor=RandomForestRegressor(),
-        func=log10_transform,
-        inverse_func=inverse_log10
-    ),
+        "rf": TransformedTargetRegressor(
+            regressor=RandomForestRegressor(),
+            func=log10_transform,
+            inverse_func=inverse_log10
+        ),
 
-    "xgb": TransformedTargetRegressor(
-        regressor=XGBRegressor(),
-        func=log10_transform,
-        inverse_func=inverse_log10
-    )
-}
+        "xgb": TransformedTargetRegressor(
+            regressor=XGBRegressor(),
+            func=log10_transform,
+            inverse_func=inverse_log10
+        )
+    }
 
     X = df[cat_cols + num_cols]
     y = df["price_num"]
@@ -156,14 +154,15 @@ def run_once(dry_run=False):
         ])
 
         pipe.fit(X_tr, y_tr)
-                # ---------------- FEATURE IMPORTANCE ----------------
+
+        # ---------------- FEATURE IMPORTANCE ----------------
         clf = pipe.named_steps["clf"]
         base_model = clf.regressor_ if hasattr(clf, "regressor_") else clf
 
         if hasattr(base_model, "feature_importances_"):
             try:
                 feat_names = get_feature_names(pipe.named_steps["preprocessor"])
-                importances = clf.feature_importances_
+                importances = base_model.feature_importances_
 
                 imp_df = pd.DataFrame({
                     "feature": feat_names,
@@ -182,12 +181,24 @@ def run_once(dry_run=False):
                 if not dry_run:
                     upload_file(client, fi_path, f"{base_path}/plots/{name}_feature_importance.png")
 
-                # ---------------- PDP (TOP 3 ONLY - SAFE ORIGINAL FEATURES) ----------------
+                # -------- AGGREGATE BACK TO ORIGINAL FEATURES --------
+                imp_df["base_feature"] = imp_df["feature"].apply(
+                    lambda x: next((col for col in cat_cols + num_cols if x.startswith(col)), x)
+                )
 
-                top_feats = imp_df["feature"].head(3).tolist()
-                top_feats = [f for f in top_feats if isinstance(f, str)]
+                agg_imp = (
+                    imp_df.groupby("base_feature")["importance"]
+                    .sum()
+                    .sort_values(ascending=False)
+                )
 
+                top_feats = agg_imp.head(3).index.tolist()
+
+                # ---------------- PDP ----------------
                 for f in top_feats:
+                    if f not in X_val.columns:
+                        continue
+
                     try:
                         plt.figure()
 
@@ -198,9 +209,7 @@ def run_once(dry_run=False):
                             kind="average"
                         )
 
-                        safe_f = f.replace("/", "_").replace(" ", "_")
-
-                        pdp_path = f"/tmp/{name}_pdp_{safe_f}.png"
+                        pdp_path = f"/tmp/{name}_pdp_{f}.png"
                         plt.savefig(pdp_path, bbox_inches="tight")
                         plt.close()
 
@@ -208,7 +217,7 @@ def run_once(dry_run=False):
                             upload_file(
                                 client,
                                 pdp_path,
-                                f"{base_path}/plots/{name}_pdp_{safe_f}.png"
+                                f"{base_path}/plots/{name}_pdp_{f}.png"
                             )
 
                     except Exception as e:
@@ -216,6 +225,7 @@ def run_once(dry_run=False):
 
             except Exception as e:
                 logging.warning(f"Feature importance failed for {name}: {e}")
+
         # -------- SAVE MODEL --------
         local_model = f"/tmp/{name}.joblib"
         joblib.dump(pipe, local_model)
