@@ -293,9 +293,14 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-@app.route("/", methods=["POST"])
+@app.route("/", methods=["POST", "GET"])
 def main():
-    return train_dt_http(request)
+    try:
+        result = run_once()
+        return json.dumps(result), 200
+    except Exception as e:
+        logging.error(traceback.format_exc())
+        return json.dumps({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
