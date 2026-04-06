@@ -31,32 +31,13 @@ logging.basicConfig(level="INFO")
 # ---------------- GCS ----------------
 def upload_file(client, local_path, gcs_path):
     bucket = client.bucket(GCS_BUCKET)
-    blob = bucket.blob(gcs_path)
-    blob.upload_from_filename(local_path)
+    bucket.blob(gcs_path).upload_from_filename(local_path)
 
 def read_csv(client):
     blob = client.bucket(GCS_BUCKET).blob(DATA_KEY)
     return pd.read_csv(io.BytesIO(blob.download_as_bytes()))
 
 # ---------------- HELPERS ----------------
-def get_feature_names(preprocessor):
-    names = []
-
-    for name, trans, cols in preprocessor.transformers_:
-        if name == "num":
-            names.extend(cols)
-        else:
-            try:
-                ohe = trans.named_steps.get("oh", None)
-                if ohe:
-                    names.extend(ohe.get_feature_names_out(cols))
-                else:
-                    names.extend(cols)
-            except:
-                names.extend(cols)
-
-    return names
-
 class TopKEncoder(BaseEstimator, TransformerMixin):
     def __init__(self, top_k=10):
         self.top_k = top_k
@@ -79,11 +60,21 @@ def clean_numeric(s):
         errors="coerce"
     )
 
-def log10_transform(x):
-    return np.log10(np.clip(x, 1, None))  # SAFE
+# ---------------- FEATURE NAMES ----------------
+def get_feature_names(preprocessor):
+    names = []
 
-def inverse_log10(x):
-    return 10 ** x
+    for name, trans, cols in preprocessor.transformers_:
+        if name == "num":
+            names.extend(cols)
+        else:
+            try:
+                ohe = trans.named_steps["oh"]
+                names.extend(ohe.get_feature_names_out(cols))
+            except:
+                names.extend(cols)
+
+    return names
 
 # ---------------- MAIN ----------------
 def run_once(dry_run=False):
@@ -97,43 +88,38 @@ def run_once(dry_run=False):
     df["age"] = 2026 - df["year"]
 
     df["price_num"] = clean_numeric(df["price"])
-    df["age_num"] = clean_numeric(df["age"])
     df["mileage_num"] = clean_numeric(df["mileage"])
 
     df = df[df["price_num"].notna()]
 
-    if len(df) < 40:
-        return {"status": "noop"}
-
-    # -------- FEATURES --------
     cat_cols = ["make_model","color","condition","transmission","fuel","city","state"]
-    num_cols = ["age_num","mileage_num"]
+    num_cols = ["age","mileage_num"]
 
     preprocessor = ColumnTransformer([
         ("make_model", Pipeline([
             ("topk", TopKEncoder(15)),
             ("oh", OneHotEncoder(handle_unknown="ignore"))
         ]), ["make_model"]),
+
         ("cat", Pipeline([
             ("imp", SimpleImputer(strategy="most_frequent")),
             ("oh", OneHotEncoder(handle_unknown="ignore"))
         ]), cat_cols),
+
         ("num", SimpleImputer(strategy="median"), num_cols)
     ])
 
     models = {
         "dt": DecisionTreeRegressor(),
-
         "rf": TransformedTargetRegressor(
             regressor=RandomForestRegressor(),
-            func=log10_transform,
-            inverse_func=inverse_log10
+            func=np.log10,
+            inverse_func=lambda x: 10 ** x
         ),
-
         "xgb": TransformedTargetRegressor(
             regressor=XGBRegressor(),
-            func=log10_transform,
-            inverse_func=inverse_log10
+            func=np.log10,
+            inverse_func=lambda x: 10 ** x
         )
     }
 
@@ -160,105 +146,70 @@ def run_once(dry_run=False):
         base_model = clf.regressor_ if hasattr(clf, "regressor_") else clf
 
         if hasattr(base_model, "feature_importances_"):
-            try:
-                feat_names = get_feature_names(pipe.named_steps["preprocessor"])
-                importances = base_model.feature_importances_
 
-                imp_df = pd.DataFrame({
-                    "feature": feat_names,
-                    "importance": importances
-                }).sort_values("importance", ascending=False)
+            feat_names = get_feature_names(pipe.named_steps["preprocessor"])
+            importances = base_model.feature_importances_
 
-                # Plot top 15
-                plt.figure()
-                imp_df.head(15).plot.barh(x="feature", y="importance")
-                plt.title(f"{name} Feature Importance")
+            imp_df = pd.DataFrame({
+                "feature": feat_names,
+                "importance": importances
+            }).sort_values("importance", ascending=False)
 
-                fi_path = f"/tmp/{name}_feature_importance.png"
-                plt.savefig(fi_path, bbox_inches="tight")
-                plt.close()
+            # aggregate to raw feature level
+            def map_raw(f):
+                for c in cat_cols + num_cols:
+                    if f.startswith(c):
+                        return c
+                return f
 
-                if not dry_run:
-                    upload_file(client, fi_path, f"{base_path}/plots/{name}_feature_importance.png")
+            imp_df["raw"] = imp_df["feature"].apply(map_raw)
 
-                # -------- AGGREGATE BACK TO ORIGINAL FEATURES --------
-                imp_df["base_feature"] = imp_df["feature"].apply(
-                    lambda x: next((col for col in cat_cols + num_cols if x.startswith(col)), x)
-                )
+            agg = imp_df.groupby("raw")["importance"].sum().sort_values(ascending=False)
 
-                agg_imp = (
-                    imp_df.groupby("base_feature")["importance"]
-                    .sum()
-                    .sort_values(ascending=False)
-                )
+            top_feats = agg.head(3).index.tolist()
 
-                top_feats = agg_imp.head(3).index.tolist()
+            logging.info(f"{name} TOP FEATURES: {top_feats}")
 
-                # ---------------- PDP ----------------
-                for f in top_feats:
+            # ---------------- PDP ----------------
+            X_val_trans = pipe.named_steps["preprocessor"].transform(X_val)
+
+            feat_names_full = get_feature_names(pipe.named_steps["preprocessor"])
+
+            for f in top_feats:
+
+                try:
                     if f not in X_val.columns:
                         continue
 
-                    try:
-                        plt.figure()
+                    plt.figure()
 
-                        PartialDependenceDisplay.from_estimator(
-                            pipe,
-                            X_val,
-                            features=[f],
-                            kind="average"
-                        )
+                    PartialDependenceDisplay.from_estimator(
+                        base_model,
+                        X_val_trans,
+                        features=[f],
+                        kind="average"
+                    )
 
-                        pdp_path = f"/tmp/{name}_pdp_{f}.png"
-                        plt.savefig(pdp_path, bbox_inches="tight")
-                        plt.close()
+                    path = f"/tmp/{name}_pdp_{f}.png"
+                    plt.savefig(path, bbox_inches="tight")
+                    plt.close()
 
-                        if not dry_run:
-                            upload_file(
-                                client,
-                                pdp_path,
-                                f"{base_path}/plots/{name}_pdp_{f}.png"
-                            )
+                    if not dry_run:
+                        upload_file(client, path, f"{base_path}/plots/{name}_pdp_{f}.png")
 
-                    except Exception as e:
-                        logging.warning(f"PDP failed for {name} - {f}: {e}")
+                except Exception as e:
+                    logging.warning(f"PDP failed {name} {f}: {e}")
 
-            except Exception as e:
-                logging.warning(f"Feature importance failed for {name}: {e}")
-
-        # -------- SAVE MODEL --------
-        local_model = f"/tmp/{name}.joblib"
-        joblib.dump(pipe, local_model)
-
-        if not dry_run:
-            upload_file(client, local_model, f"{base_path}/models/{name}.joblib")
-
-        # -------- PREDICTIONS --------
+        # ---------------- METRICS ----------------
         preds = pipe.predict(X_val)
         mae = mean_absolute_error(y_val, preds)
         results[name] = mae
 
-        out = X_val.copy()
-        out["actual"] = y_val
-        out["pred"] = preds
+    return {"status": "ok", "mae": results}
 
-        local_csv = f"/tmp/preds_{name}.csv"
-        out.to_csv(local_csv, index=False)
 
-        if not dry_run:
-            upload_file(client, local_csv, f"{base_path}/preds_{name}.csv")
-
-    return {
-        "status": "ok",
-        "output_prefix": base_path,
-        "mae": results
-    }
-
-# ---------------- ENTRYPOINT ----------------
 def train_dt_http(request):
     try:
-        result = run_once()
-        return (json.dumps(result), 200)
+        return (json.dumps(run_once()), 200)
     except Exception as e:
-        logging.error(traceback.format_exc())
         return (json.dumps({"error": str(e)}), 500)
