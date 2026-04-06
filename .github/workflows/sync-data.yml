@@ -1,9 +1,8 @@
-name: Data Sync ALL Artifacts to Repo
-run-name: Syncing all artifacts for ${{ github.ref_name }} by @${{ github.actor }}
+name: Data Sync Hourly Predictions + Models to Repo
 
 on:
   schedule:
-    - cron: '45 * * * *'   # every hour at :45
+    - cron: '45 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,10 +15,7 @@ env:
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
 
-  # Root GCS path where runs live
   GCS_BASE_PREFIX: "structured_v2/preds"
-
-  # Local repo folder
   OUTPUT_DIR: "results"
 
 jobs:
@@ -27,19 +23,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -----------------------------------
-      # 1. Checkout repo
-      # -----------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0   # IMPORTANT for rebase
 
-      # -----------------------------------
-      # 2. Auth to GCP
-      # -----------------------------------
-      - name: Auth (WIF)
+      - name: Auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
@@ -47,76 +36,34 @@ jobs:
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.PROJECT_ID }}
 
-      # -----------------------------------
-      # 3. Find latest run + download ALL files
-      # -----------------------------------
-      - name: Sync latest run from GCS
+      - name: Download latest run
         id: sync
-        shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
-          echo "🔍 Looking for runs in GCS..."
+          LATEST_RUN=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ | tail -1)
+          RUN_ID=$(basename $LATEST_RUN)
 
-          RUNS=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ 2>/dev/null || true)
+          LOCAL_DIR=${OUTPUT_DIR}/${RUN_ID}
+          mkdir -p ${LOCAL_DIR}/models
 
-          if [ -z "$RUNS" ]; then
-            echo "⚠️ No runs found. Exiting cleanly."
-            exit 0
-          fi
+          # preds
+          gsutil cp gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${RUN_ID}/preds_*.csv ${LOCAL_DIR}/ || true
 
-          LATEST_RUN_DIR=$(echo "$RUNS" | sort | tail -1)
+          # models
+          gsutil cp gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${RUN_ID}/models/* ${LOCAL_DIR}/models/ || true
 
-          LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/||; s|/||")
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
-          echo "✅ Latest run detected: $LATEST_RUN_ID"
-
-          LOCAL_RUN_DIR="${OUTPUT_DIR}/${LATEST_RUN_ID}"
-
-          mkdir -p "$LOCAL_RUN_DIR"
-
-          echo "⬇️ Syncing ALL files from run..."
-
-          # 🔥 THIS IS THE KEY CHANGE:
-          # Sync entire run directory (predictions, models, plots, etc.)
-          gsutil -m rsync -r \
-            "gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}" \
-            "$LOCAL_RUN_DIR"
-
-          echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
-
-      # -----------------------------------
-      # 4. Commit + push
-      # -----------------------------------
-      - name: Commit and Push
-        if: success()
-        shell: bash
+      - name: Commit
         run: |
-          set -euo pipefail
-
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           RUN_ID="${{ steps.sync.outputs.run_id }}"
 
-          if [ -z "${RUN_ID:-}" ]; then
-            echo "⚠️ No run_id found. Skipping commit."
-            exit 0
-          fi
-
-          echo "📦 Preparing commit for run: $RUN_ID"
-
-          # Always sync with remote first
           git pull --rebase origin main
-
-          # Stage ONLY this run folder
           git add ${OUTPUT_DIR}/${RUN_ID}
-
-          # Commit safely
-          git commit -m "🤖 Sync: all artifacts for run ${RUN_ID}" || echo "Nothing to commit"
-
-          # Push changes
+          git commit -m "sync run ${RUN_ID}" || echo "no changes"
           git push
