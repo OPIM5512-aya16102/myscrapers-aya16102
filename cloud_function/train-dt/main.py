@@ -180,50 +180,45 @@ def run_once(dry_run=False):
             model = pipe.named_steps["clf"]
             base_model = model.regressor_ if hasattr(model, "regressor_") else model
 
-            # transform data
             X_val_trans = pre.transform(X_val)
-
-            # get encoded feature names
             feat_names = get_feature_names(pre)
 
-            # top 3 features from importance (encoded space)
-            top_feats = imp_df["feature"].head(3).tolist()
+            # ✔ USE RAW TOP FEATURES (correct importance space)
+            top_raw = agg.head(3).index.tolist()
 
-            # map names → indices
-            valid_idx = []
-            valid_names = []
+            logging.info(f"{name} PDP RAW FEATURES: {top_raw}")
 
-            for f in top_feats:
-                if f in feat_names:
-                    idx = feat_names.index(f)
-                    valid_idx.append(idx)
-                    valid_names.append(f)
-
-            logging.info(f"PDP features: {valid_names}")
-
-            for f_name, idx in zip(valid_names, valid_idx):
+            for f in top_raw:
 
                 try:
                     plt.figure()
 
+                    # ❗ IMPORTANT FIX: use PIPELINE, NOT base_model
                     PartialDependenceDisplay.from_estimator(
-                        base_model,
-                        X_val_trans,
-                        features=[idx],   # IMPORTANT: index, not name
+                        pipe,              # <-- FIXED (this is critical)
+                        X_val,             # <-- RAW DATA
+                        features=[f],      # <-- RAW FEATURE NAME
                         kind="average"
                     )
 
-                    safe = f_name.replace("/", "_").replace(" ", "_")
+                    safe = f.replace("/", "_").replace(" ", "_")
 
                     path = f"/tmp/{name}_pdp_{safe}.png"
                     plt.savefig(path, bbox_inches="tight")
                     plt.close()
 
+                    logging.info(f"Saved PDP locally: {path}")
+
                     if not dry_run:
-                        upload_file(client, path, f"{base_path}/plots/{name}_pdp_{safe}.png")
+                        upload_file(
+                            client,
+                            path,
+                            f"{base_path}/plots/{name}_pdp_{safe}.png"
+                        )
+                        logging.info(f"Uploaded PDP to GCS: {name}/{safe}")
 
                 except Exception as e:
-                    logging.warning(f"PDP failed {name} {f_name}: {e}")
+                    logging.warning(f"PDP FAILED {name} {f}: {e}")
 
         # ---------------- METRICS ----------------
         preds = pipe.predict(X_val)
