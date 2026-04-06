@@ -80,7 +80,7 @@ def clean_numeric(s):
         errors="coerce"
     )
 
-def inverse_log10(x):
+def log10_transform(x):
     return 10 ** x
 
 # ---------------- MAIN ----------------
