@@ -80,8 +80,11 @@ def clean_numeric(s):
         errors="coerce"
     )
 
-def log10_transform(x):
+def inverse_log10(x):
     return 10 ** x
+
+def log10_transform(x):
+    return np.log10(x)
 
 # ---------------- MAIN ----------------
 def run_once(dry_run=False):
