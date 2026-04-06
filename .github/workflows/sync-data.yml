@@ -1,5 +1,5 @@
-name: Data Sync Hourly Predictions + Models to Repo
-run-name: Syncing hourly artifacts for ${{ github.ref_name }} by @${{ github.actor }}
+name: Data Sync ALL Artifacts to Repo
+run-name: Syncing all artifacts for ${{ github.ref_name }} by @${{ github.actor }}
 
 on:
   schedule:
@@ -16,10 +16,10 @@ env:
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
 
-  # GCS structure
+  # Root GCS path where runs live
   GCS_BASE_PREFIX: "structured_v2/preds"
 
-  # Local repo output folder
+  # Local repo folder
   OUTPUT_DIR: "results"
 
 jobs:
@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0   # IMPORTANT for rebase
 
       # -----------------------------------
       # 2. Auth to GCP
@@ -50,51 +51,41 @@ jobs:
           project_id: ${{ env.PROJECT_ID }}
 
       # -----------------------------------
-      # 3. Find latest run + download
+      # 3. Find latest run + download ALL files
       # -----------------------------------
-      - name: Download latest predictions + models
+      - name: Sync latest run from GCS
         id: sync
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "🔍 Finding latest run..."
+          echo "🔍 Looking for runs in GCS..."
 
-          RUNS=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ || true)
+          RUNS=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ 2>/dev/null || true)
 
           if [ -z "$RUNS" ]; then
-            echo "No runs found in GCS. Exiting."
+            echo "⚠️ No runs found. Exiting cleanly."
             exit 0
           fi
 
-          LATEST_RUN_DIR=$(echo "$RUNS" | tail -1)
+          LATEST_RUN_DIR=$(echo "$RUNS" | sort | tail -1)
 
           LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/||; s|/||")
 
-          echo "✅ Latest run_id: $LATEST_RUN_ID"
+          echo "✅ Latest run detected: $LATEST_RUN_ID"
 
           LOCAL_RUN_DIR="${OUTPUT_DIR}/${LATEST_RUN_ID}"
-          LOCAL_MODEL_DIR="${LOCAL_RUN_DIR}/models"
 
-          mkdir -p "$LOCAL_MODEL_DIR"
+          mkdir -p "$LOCAL_RUN_DIR"
 
-          # ---------------------------
-          # Download ALL predictions
-          # ---------------------------
-          echo "⬇️ Downloading prediction files..."
-          gsutil -m cp \
-            gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/preds_*.csv \
-            "$LOCAL_RUN_DIR/" || echo "No prediction files found"
+          echo "⬇️ Syncing ALL files from run..."
 
-          # ---------------------------
-          # Download ALL models
-          # ---------------------------
-          echo "⬇️ Downloading model files..."
-          gsutil -m cp \
-            gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}/models/* \
-            "$LOCAL_MODEL_DIR/" || echo "No model files found"
+          # 🔥 THIS IS THE KEY CHANGE:
+          # Sync entire run directory (predictions, models, plots, etc.)
+          gsutil -m rsync -r \
+            "gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}" \
+            "$LOCAL_RUN_DIR"
 
-          # Export run_id
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
 
       # -----------------------------------
@@ -111,21 +102,21 @@ jobs:
 
           RUN_ID="${{ steps.sync.outputs.run_id }}"
 
-          if [ -z "$RUN_ID" ]; then
-            echo "No run_id found. Skipping commit."
+          if [ -z "${RUN_ID:-}" ]; then
+            echo "⚠️ No run_id found. Skipping commit."
             exit 0
           fi
 
           echo "📦 Preparing commit for run: $RUN_ID"
 
-          # Pull latest FIRST to avoid conflicts
+          # Always sync with remote first
           git pull --rebase origin main
 
-          # Add files
-          git add ${OUTPUT_DIR}/$RUN_ID
+          # Stage ONLY this run folder
+          git add ${OUTPUT_DIR}/${RUN_ID}
 
-          # Commit (safe if nothing changed)
-          git commit -m "🤖 Sync: predictions + models for run $RUN_ID" || echo "Nothing to commit"
+          # Commit safely
+          git commit -m "🤖 Sync: all artifacts for run ${RUN_ID}" || echo "Nothing to commit"
 
-          # Push
+          # Push changes
           git push
