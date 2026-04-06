@@ -1,52 +1,46 @@
-import os, io, json, logging, traceback, re
+import os, io, json, logging, traceback
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+
 from google.cloud import storage
 
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
-from sklearn.metrics import (
-    mean_absolute_error,
-    mean_squared_error,
-    mean_absolute_percentage_error,
-    r2_score
-)
 
+from sklearn.metrics import mean_absolute_error
+from sklearn.inspection import permutation_importance, PartialDependenceDisplay
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import TransformedTargetRegressor
-import joblib
 
-from scipy.stats import randint, uniform
+import joblib
+from scipy.stats import randint
 
 # ---------------- ENV ----------------
-PROJECT_ID     = os.getenv("PROJECT_ID", "")
-GCS_BUCKET     = os.getenv("GCS_BUCKET", "")
-DATA_KEY       = os.getenv("DATA_KEY", "structured_v2/datasets/listings_master_llm.csv")
-OUTPUT_PREFIX  = os.getenv("OUTPUT_PREFIX", "preds")
-TIMEZONE       = os.getenv("TIMEZONE", "America/New_York")
+PROJECT_ID = os.getenv("PROJECT_ID", "")
+GCS_BUCKET = os.getenv("GCS_BUCKET", "")
+DATA_KEY = os.getenv("DATA_KEY", "structured_v2/datasets/listings_master_llm.csv")
+OUTPUT_PREFIX = os.getenv("OUTPUT_PREFIX", "preds")
+TIMEZONE = os.getenv("TIMEZONE", "America/New_York")
 
-logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level="INFO")
 
 
 # ---------------- GCS HELPERS ----------------
-def _upload_file_to_gcs(client, bucket_name, local_path, gcs_path):
-    if not isinstance(gcs_path, str):
-        raise ValueError(f"gcs_path must be a string, got {type(gcs_path)}")
-
-    bucket = client.bucket(bucket_name)
+def upload_file(client, local_path, gcs_path):
+    bucket = client.bucket(GCS_BUCKET)
     blob = bucket.blob(gcs_path)
     blob.upload_from_filename(local_path)
 
 
-def _read_csv_from_gcs(client, bucket, key):
-    b = client.bucket(bucket)
-    blob = b.blob(key)
+def read_csv_gcs(client, key):
+    blob = client.bucket(GCS_BUCKET).blob(key)
     return pd.read_csv(io.BytesIO(blob.download_as_bytes()))
 
 
@@ -58,225 +52,238 @@ class TopKEncoder(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         X = pd.DataFrame(X)
         self.col = X.columns[0]
-        self.top_categories_ = X.iloc[:, 0].value_counts().nlargest(self.top_k).index
+        self.top_ = X.iloc[:, 0].value_counts().nlargest(self.top_k).index
         return self
 
     def transform(self, X):
         X = pd.DataFrame(X)
-        col_values = X.iloc[:, 0]
         return pd.DataFrame({
-            self.col: col_values.where(col_values.isin(self.top_categories_), "other")
+            self.col: X.iloc[:, 0].where(X.iloc[:, 0].isin(self.top_), "other")
         })
 
 
-def _clean_numeric(s):
-    s = s.astype(str).str.replace(r"[^\d.]+", "", regex=True).str.strip()
-    return pd.to_numeric(s, errors="coerce")
+def clean_num(s):
+    return pd.to_numeric(s.astype(str).str.replace(r"[^\d.]+", "", regex=True), errors="coerce")
 
 
 def inverse_log10(x):
     return 10 ** x
 
 
-# ---------------- MAIN TRAINING ----------------
+# ---------------- FEATURE NAMES ----------------
+def get_feature_names(preprocessor):
+    names = []
+
+    for name, trans, cols in preprocessor.transformers_:
+        if name == "num":
+            names.extend(cols)
+
+        elif name == "cat":
+            oh = trans.named_steps["oh"]
+            names.extend(oh.get_feature_names_out(cols))
+
+        elif name == "make_model":
+            oh = trans.named_steps["oh"]
+            names.extend(oh.get_feature_names_out(["make_model"]))
+
+    return names
+
+
+# ---------------- PLOTS ----------------
+def generate_plots(model, name, X_val, y_val, base_path, client):
+
+    if isinstance(model, TransformedTargetRegressor):
+        pipe = model.regressor_
+    else:
+        pipe = model
+
+    pre = pipe.named_steps["preprocessor"]
+    clf = pipe.named_steps["clf"]
+
+    X_t = pre.transform(X_val)
+    features = get_feature_names(pre)
+
+    # -------- Feature Importance --------
+    if hasattr(clf, "feature_importances_"):
+        imp = clf.feature_importances_
+    else:
+        perm = permutation_importance(clf, X_t, y_val, n_repeats=5)
+        imp = perm.importances_mean
+
+    df_imp = pd.DataFrame({"feature": features, "importance": imp})
+    df_imp = df_imp.sort_values("importance", ascending=False)
+
+    top3 = df_imp.head(3)["feature"].tolist()
+
+    # Plot FI
+    plt.figure()
+    df_imp.head(10).plot(kind="barh", x="feature", y="importance")
+    plt.gca().invert_yaxis()
+
+    fi_local = f"/tmp/{name}_fi.png"
+    plt.savefig(fi_local)
+    plt.close()
+
+    upload_file(client, fi_local, f"{base_path}/plots/{name}_fi.png")
+
+    # -------- PDP --------
+    for i, feat in enumerate(top3):
+        try:
+            fig, ax = plt.subplots()
+
+            PartialDependenceDisplay.from_estimator(
+                clf,
+                X_t,
+                [features.index(feat)],
+                ax=ax
+            )
+
+            pdp_local = f"/tmp/{name}_pdp_{i}.png"
+            plt.savefig(pdp_local)
+            plt.close()
+
+            upload_file(client, pdp_local, f"{base_path}/plots/{name}_pdp_{i}.png")
+
+        except Exception as e:
+            logging.warning(f"PDP failed: {e}")
+
+
+# ---------------- MAIN ----------------
 def run_once(dry_run=False):
 
     client = storage.Client(project=PROJECT_ID)
-    df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
+    df = read_csv_gcs(client, DATA_KEY)
 
-    required = {
-        "scraped_at", "price", "make", "model", "year", "mileage",
-        "color", "condition", "transmission", "fuel",
-        "city", "state", "zipcode"
-    }
-
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing columns: {missing}")
-
-    # ---------------- TIME SPLIT ----------------
-    dt = pd.to_datetime(df["scraped_at"], errors="coerce", utc=True)
-    df["date_local"] = dt.dt.date
-
-    # ---------------- CLEAN ----------------
+    # -------- CLEAN --------
+    df["date"] = pd.to_datetime(df["scraped_at"], errors="coerce").dt.date
     df["zipcode"] = df["zipcode"].astype(str).str.zfill(5)
+
     df["make_model"] = df["make"] + "_" + df["model"]
     df["age"] = 2026 - df["year"]
-    df["miles_age_ratio"] = df["mileage"] / df["age"]
+    df["ratio"] = df["mileage"] / df["age"]
 
-    df["price_num"] = _clean_numeric(df["price"])
-    df["year_num"] = _clean_numeric(df["year"])
-    df["mileage_num"] = _clean_numeric(df["mileage"])
-    df["age_num"] = _clean_numeric(df["age"])
-    df["miles_age_ratio_num"] = _clean_numeric(df["miles_age_ratio"])
+    df["price_num"] = clean_num(df["price"])
+    df["age"] = clean_num(df["age"])
+    df["mileage"] = clean_num(df["mileage"])
+    df["ratio"] = clean_num(df["ratio"])
 
-    unique_dates = sorted(df["date_local"].dropna().unique())
-    today_local = unique_dates[-1]
+    today = sorted(df["date"].dropna().unique())[-1]
 
-    train_df = df[df["date_local"] < today_local].copy()
-    holdout_df = df[df["date_local"] == today_local].copy()
+    train = df[df["date"] < today].copy()
+    hold = df[df["date"] == today].copy()
 
-    train_df = train_df[train_df["price_num"].notna()]
+    train = train[train["price_num"].notna()]
 
-    if len(train_df) < 40:
-        return {"status": "noop", "reason": "too few rows"}
+    if len(train) < 40:
+        return {"status": "noop"}
 
-    # ---------------- FEATURES ----------------
-    target = "price_num"
+    # -------- FEATURES --------
+    cat = ["make_model", "color", "condition", "transmission", "fuel", "city", "state"]
+    num = ["age", "mileage", "ratio"]
 
-    cat_cols = ["make_model", "color", "condition", "transmission", "fuel", "city", "state"]
-    num_cols = ["age_num", "mileage_num", "miles_age_ratio_num"]
+    pre = ColumnTransformer([
+        ("make_model", Pipeline([
+            ("topk", TopKEncoder(15)),
+            ("oh", OneHotEncoder(handle_unknown="ignore"))
+        ]), ["make_model"]),
 
-    make_model_pipe = Pipeline([
-        ("topk", TopKEncoder(top_k=15)),
-        ("oh", OneHotEncoder(handle_unknown="ignore"))
+        ("cat", Pipeline([
+            ("imp", SimpleImputer(strategy="most_frequent")),
+            ("oh", OneHotEncoder(handle_unknown="ignore"))
+        ]), cat),
+
+        ("num", SimpleImputer(strategy="median"), num)
     ])
 
-    cat_pipe = Pipeline([
-        ("imp", SimpleImputer(strategy="most_frequent")),
-        ("oh", OneHotEncoder(handle_unknown="ignore"))
-    ])
+    # -------- MODELS --------
+    models_cfg = {
+        "dt": RandomizedSearchCV(
+            Pipeline([("preprocessor", pre), ("clf", DecisionTreeRegressor())]),
+            {"clf__max_depth": randint(3, 20)}, n_iter=5, cv=3, n_jobs=-1
+        ),
 
-    num_pipe = SimpleImputer(strategy="median")
+        "rf": RandomizedSearchCV(
+            TransformedTargetRegressor(
+                regressor=Pipeline([("preprocessor", pre), ("clf", RandomForestRegressor())]),
+                func=np.log10,
+                inverse_func=inverse_log10
+            ),
+            {"regressor__clf__n_estimators": randint(50, 200)}, n_iter=5, cv=3, n_jobs=-1
+        ),
 
-    preprocessor = ColumnTransformer([
-        ("make_model", make_model_pipe, ["make_model"]),
-        ("cat", cat_pipe, cat_cols),
-        ("num", num_pipe, num_cols)
-    ])
+        "xgb": RandomizedSearchCV(
+            TransformedTargetRegressor(
+                regressor=Pipeline([("preprocessor", pre), ("clf", XGBRegressor())]),
+                func=np.log10,
+                inverse_func=inverse_log10
+            ),
+            {"regressor__clf__max_depth": randint(3, 10)}, n_iter=5, cv=3, n_jobs=-1
+        )
+    }
 
-    # ---------------- MODELS ----------------
-    pipe_dt = Pipeline([
-        ("preprocessor", preprocessor),
-        ("clf", DecisionTreeRegressor(random_state=42))
-    ])
-
-    pipe_rf = Pipeline([
-        ("preprocessor", preprocessor),
-        ("clf", RandomForestRegressor(random_state=42))
-    ])
-
-    pipe_xgb = Pipeline([
-        ("preprocessor", preprocessor),
-        ("clf", XGBRegressor(random_state=42))
-    ])
-
-    rf_log = TransformedTargetRegressor(
-        regressor=pipe_rf,
-        func=np.log10,
-        inverse_func=inverse_log10
-    )
-
-    xgb_log = TransformedTargetRegressor(
-        regressor=pipe_xgb,
-        func=np.log10,
-        inverse_func=inverse_log10
-    )
-
-    grids = [
-        RandomizedSearchCV(pipe_dt, {"clf__max_depth": randint(3, 20)}, n_iter=5, cv=3, n_jobs=-1),
-        RandomizedSearchCV(rf_log, {"regressor__clf__n_estimators": randint(50, 200)}, n_iter=5, cv=3, n_jobs=-1),
-        RandomizedSearchCV(xgb_log, {"regressor__clf__max_depth": randint(3, 10)}, n_iter=5, cv=3, n_jobs=-1)
-    ]
-
-    labels = ["dt", "rf", "xgb"]
-
-    X = train_df[cat_cols + num_cols]
-    y = train_df[target]
+    X = train[cat + num]
+    y = train["price_num"]
 
     X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
 
-    # ---------------- OUTPUT STRUCTURE ----------------
     now = pd.Timestamp.utcnow()
     base_path = f"{OUTPUT_PREFIX}/{now.strftime('%Y%m%d%H')}"
-    model_path_gcs_root = f"{base_path}/models"
 
-    os.makedirs("saved_models", exist_ok=True)
-
-    best_err = float("inf")
-    best_model = None
-
-    models = {}
     results = {}
+    trained = {}
 
-    # ---------------- TRAIN LOOP ----------------
-    for gs, name in zip(grids, labels):
+    # -------- TRAIN --------
+    for name, gs in models_cfg.items():
 
         gs.fit(X_tr, y_tr)
-
         model = gs.best_estimator_
-        models[name] = model
 
-        local_path = f"saved_models/{name}.joblib"
-        gcs_path = f"{model_path_gcs_root}/{name}.joblib"
+        trained[name] = model
 
-        joblib.dump(model, local_path)
+        # Save model
+        local_model = f"/tmp/{name}.joblib"
+        joblib.dump(model, local_model)
 
         if not dry_run:
-            _upload_file_to_gcs(client, GCS_BUCKET, local_path, gcs_path)
+            upload_file(client, local_model, f"{base_path}/models/{name}.joblib")
 
+        # Metrics
         preds = gs.predict(X_val)
-        mae = mean_absolute_error(y_val, preds)
+        results[name] = float(mean_absolute_error(y_val, preds))
 
-        results[name] = mae
+        # 🔥 FEATURE IMPORTANCE + PDP
+        if not dry_run:
+            generate_plots(model, name, X_val, y_val, base_path, client)
 
-        if mae < best_err:
-            best_err = mae
-            best_model = model
+    # -------- PREDICTIONS --------
+    for name, model in trained.items():
 
-    # ---------------- SAVE BEST MODEL ----------------
-    best_local = "saved_models/best.joblib"
-    best_gcs = f"{model_path_gcs_root}/best.joblib"
+        if hold.empty:
+            continue
 
-    joblib.dump(best_model, best_local)
-
-    if not dry_run:
-        _upload_file_to_gcs(client, GCS_BUCKET, best_local, best_gcs)
-
-    # ---------------- PREDICTIONS ----------------
-    def make_preds(model):
-        if holdout_df.empty:
-            return None
-
-        Xh = holdout_df[cat_cols + num_cols]
-        preds = model.predict(Xh)
-
-        out = holdout_df.copy()
+        preds = model.predict(hold[cat + num])
+        out = hold.copy()
         out["pred_price"] = preds
-        return out
 
-    pred_outputs = {}
+        tmp = f"/tmp/preds_{name}.csv"
+        out.to_csv(tmp, index=False)
 
-    for name, model in models.items():
-        df_out = make_preds(model)
-        if df_out is not None:
-            path = f"{base_path}/preds_{name}.csv"
+        if not dry_run:
+            upload_file(client, tmp, f"{base_path}/preds_{name}.csv")
 
-            local_tmp = f"/tmp/preds_{name}.csv"
-            df_out.to_csv(local_tmp, index=False)
-
-            if not dry_run:
-                _upload_file_to_gcs(client, GCS_BUCKET, local_tmp, path)
-
-            pred_outputs[name] = path
-
-    # ---------------- RETURN ----------------
     return {
         "status": "ok",
         "output_prefix": base_path,
-        "best_mae": float(best_err),
-        "mae_by_model": results,
-        "models_saved": list(models.keys()),
-        "pred_files": pred_outputs,
-        "timezone": TIMEZONE
+        "mae": results
     }
 
 
+# ---------------- HTTP ----------------
 def train_dt_http(request):
     try:
         body = request.get_json(silent=True) or {}
-        result = run_once(dry_run=body.get("dry_run", False))
-        return (json.dumps(result), 200, {"Content-Type": "application/json"})
+        res = run_once(dry_run=body.get("dry_run", False))
+        return (json.dumps(res), 200)
     except Exception as e:
         logging.error(traceback.format_exc())
-        return (json.dumps({"status": "error", "error": str(e)}), 500)
+        return (json.dumps({"error": str(e)}), 500)
