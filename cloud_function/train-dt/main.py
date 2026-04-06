@@ -38,6 +38,11 @@ def read_csv(client):
     return pd.read_csv(io.BytesIO(blob.download_as_bytes()))
 
 # ---------------- HELPERS ----------------
+def log10_transform(x):
+    return np.log10(x)
+def inverse_log10(x):
+    return 10 ** x
+
 class TopKEncoder(BaseEstimator, TransformerMixin):
     def __init__(self, top_k=10):
         self.top_k = top_k
@@ -113,13 +118,13 @@ def run_once(dry_run=False):
         "dt": DecisionTreeRegressor(),
         "rf": TransformedTargetRegressor(
             regressor=RandomForestRegressor(),
-            func=np.log10,
-            inverse_func=lambda x: 10 ** x
+            func=log10_transform,
+            inverse_func=inverse_log10
         ),
         "xgb": TransformedTargetRegressor(
             regressor=XGBRegressor(),
-            func=np.log10,
-            inverse_func=lambda x: 10 ** x
+            func=log10_transform,
+            inverse_func=inverse_log10
         )
     }
 
