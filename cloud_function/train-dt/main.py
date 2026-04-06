@@ -147,84 +147,123 @@ def run_once(dry_run=False):
         pipe.fit(X_tr, y_tr)
 
         # ---------------- FEATURE IMPORTANCE ----------------
+        # ---------------- FEATURE IMPORTANCE (FIXED) ----------------
         clf = pipe.named_steps["clf"]
-        base_model = clf.regressor_ if hasattr(clf, "regressor_") else clf
 
-        if hasattr(base_model, "feature_importances_"):
+        # unwrap TransformedTargetRegressor safely
+        if hasattr(clf, "regressor_"):
+            model = clf.regressor_
+        else:
+            model = clf
+
+        if hasattr(model, "feature_importances_"):
 
             feat_names = get_feature_names(pipe.named_steps["preprocessor"])
-            importances = base_model.feature_importances_
+            importances = model.feature_importances_
 
             imp_df = pd.DataFrame({
                 "feature": feat_names,
                 "importance": importances
             }).sort_values("importance", ascending=False)
 
-            # aggregate to raw feature level
-            def map_raw(f):
-                for c in cat_cols + num_cols:
-                    if f.startswith(c):
-                        return c
-                return f
-
-            imp_df["raw"] = imp_df["feature"].apply(map_raw)
-
-            agg = imp_df.groupby("raw")["importance"].sum().sort_values(ascending=False)
+            agg = imp_df.groupby(
+                imp_df["feature"].str.split("_").str[0]
+            )["importance"].sum().sort_values(ascending=False)
 
             top_feats = agg.head(3).index.tolist()
 
             logging.info(f"{name} TOP FEATURES: {top_feats}")
 
+        else:
+            logging.warning(f"{name} has no feature_importances_")
+
             # ---------------- PDP ----------------
+            # ---------------- PDP FIXED FOR XGB ----------------
             pre = pipe.named_steps["preprocessor"]
-            model = pipe.named_steps["clf"]
-            base_model = model.regressor_ if hasattr(model, "regressor_") else model
+            clf = pipe.named_steps["clf"]
+            model = clf.regressor_ if hasattr(clf, "regressor_") else clf
 
             X_val_trans = pre.transform(X_val)
+
             feat_names = get_feature_names(pre)
 
-            # ✔ USE RAW TOP FEATURES (correct importance space)
-            top_raw = agg.head(3).index.tolist()
+            # use encoded feature indices from importance ranking
+            top_encoded = imp_df["feature"].head(3).tolist()
 
-            logging.info(f"{name} PDP RAW FEATURES: {top_raw}")
+            valid_idx = []
+            valid_names = []
 
-            for f in top_raw:
+            for f in top_encoded:
+                if f in feat_names:
+                    valid_idx.append(feat_names.index(f))
+                    valid_names.append(f)
+
+            logging.info(f"PDP encoded features: {valid_names}")
+
+            for idx, name_ in zip(valid_idx, valid_names):
 
                 try:
                     plt.figure()
 
-                    # ❗ IMPORTANT FIX: use PIPELINE, NOT base_model
                     PartialDependenceDisplay.from_estimator(
-                        pipe,              # <-- FIXED (this is critical)
-                        X_val,             # <-- RAW DATA
-                        features=[f],      # <-- RAW FEATURE NAME
+                        model,                # raw XGB model (IMPORTANT)
+                        X_val_trans,         # encoded matrix
+                        features=[idx],
                         kind="average"
                     )
 
-                    safe = f.replace("/", "_").replace(" ", "_")
-
+                    safe = name_.replace("/", "_").replace(" ", "_")
                     path = f"/tmp/{name}_pdp_{safe}.png"
+
                     plt.savefig(path, bbox_inches="tight")
                     plt.close()
 
-                    logging.info(f"Saved PDP locally: {path}")
-
                     if not dry_run:
-                        upload_file(
-                            client,
-                            path,
-                            f"{base_path}/plots/{name}_pdp_{safe}.png"
-                        )
-                        logging.info(f"Uploaded PDP to GCS: {name}/{safe}")
+                        upload_file(client, path, f"{base_path}/plots/{name}_pdp_{safe}.png")
+
+                    logging.info(f"PDP saved: {name_}")
 
                 except Exception as e:
-                    logging.warning(f"PDP FAILED {name} {f}: {e}")
+                    logging.warning(f"PDP failed {name} {name_}: {e}")
 
         # ---------------- METRICS ----------------
         preds = pipe.predict(X_val)
         mae = mean_absolute_error(y_val, preds)
         results[name] = mae
 
+        # ---------------- SAVE MODEL ----------------
+        local_model = f"/tmp/{name}.joblib"
+        joblib.dump(pipe, local_model)
+
+        logging.info(f"Saved model locally: {local_model}")
+
+        if not dry_run:
+            upload_file(
+                client,
+                local_model,
+                f"{base_path}/models/{name}.joblib"
+            )
+            logging.info(f"Uploaded model to GCS: {name}")
+
+        # ---------------- PREDICTIONS ----------------
+        preds = pipe.predict(X_val)
+
+        out = X_val.copy()
+        out["actual"] = y_val
+        out["pred"] = preds
+
+        local_csv = f"/tmp/preds_{name}.csv"
+        out.to_csv(local_csv, index=False)
+
+        logging.info(f"Saved preds locally: {local_csv}")
+
+        if not dry_run:
+            upload_file(
+                client,
+                local_csv,
+                f"{base_path}/preds/{name}_preds.csv"
+            )
+            logging.info(f"Uploaded preds to GCS: {name}")
     return {"status": "ok", "mae": results}
 
 
