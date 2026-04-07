@@ -25,16 +25,11 @@ env:
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'vertex' }}
-  LLM_MODEL: ${{ vars.LLM_MODEL || 'gemini-2.5-flash' }} 
+  LLM_MODEL: ${{ vars.LLM_MODEL || 'gemini-2.5-flash' }} # <-- CHANGE HERE
   LLM_OVERWRITE: ${{ vars.LLM_OVERWRITE || 'false' }}
-  # FIX: Changed default from 0 to 50 so it processes a safe batch size
   LLM_MAX_FILES: ${{ vars.LLM_MAX_FILES || '50' }}
   LLM_STRUCTURED_PREFIX: ${{ vars.STRUCTURED_PREFIX || 'structured_v2' }}
-  
-  # FIX: Updated the default JSON to match the new max_files
   SCHEDULE_BODY: ${{ vars.EXTRACTOR_LLM_BODY || '{"overwrite":false,"max_files":50}' }}
-  
-  # FIX: Changed from every 10 mins (*/10) to exactly once an hour at the top of the hour (0)
   CRON_EXPR: "*/10 * * * *"
 
 jobs:
@@ -57,9 +52,10 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Ensure required APIs enabled
+      - name: Ensure required APIs enabled (Vertex AI, Scheduler, Artifact Registry)
         run: |
           set -euo pipefail
+          # Include Artifact Registry API
           for API in aiplatform.googleapis.com cloudscheduler.googleapis.com artifactregistry.googleapis.com; do
             gcloud services list --enabled --filter="$API" --format="value(config.name)" | grep -q "$API" \
               || gcloud services enable "$API"
@@ -67,12 +63,13 @@ jobs:
           
       - name: Ensure Artifact Registry Ready (CF Gen)
         run: |
-          set +e 
+          # The CF Gen default repository is 'cloud-functions' with 'docker' format
+          set +e # Allow gcloud command to fail if repo already exists
           gcloud artifacts repositories create cloud-functions \
             --repository-format=docker \
             --location="${REGION}" \
             --description="Cloud Functions Gen deployment repository"
-          set -e 
+          set -e # Restore strict execution
 
       # --- 2. CLOUD FUNCTION DEPLOYMENT ---
       - name: Deploy Cloud Function (Gen)
@@ -83,8 +80,7 @@ jobs:
             gcloud iam service-accounts describe "${RUNTIME_SA}" >/dev/null >&1
             SA_ARGS=(--service-account="${RUNTIME_SA}")
           fi
-          
-          # FIX: Added --timeout=3600 so the LLM has time to process the batch without getting killed
+          # Ensuring all flags are correctly separated by a backslash except the last one.
           gcloud functions deploy "${FUNCTION_NAME}" \
             --gen2 \
             --region="${REGION}" \
@@ -104,7 +100,8 @@ jobs:
           URL=$(gcloud functions describe "${FUNCTION_NAME}" --gen2 --region "${REGION}" --format='value(serviceConfig.uri)') 
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
-      # --- 3. IAM GRANTS ---
+      # --- 3. IAM GRANTS (RUNTIME AND DEPLOYER SAs) ---
+      
       - name: Grant invoker to deployer & runtime SAs
         run: |
           gcloud functions add-invoker-policy-binding "${FUNCTION_NAME}" \
@@ -114,44 +111,60 @@ jobs:
             --gen2 --region "${REGION}" \
             --member="serviceAccount:${RUNTIME_SA}"
 
-      - name: Grant Vertex AI user to runtime SA
+      - name: Grant Vertex AI user to runtime SA (for Gemini calls)
         run: |
           set -euo pipefail
           if [[ -n "${RUNTIME_SA:-}" ]]; then
             gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
               --member="serviceAccount:${RUNTIME_SA}" \
               --role="roles/aiplatform.user" || {
-                echo "::warning:: Could not grant roles/aiplatform.user"
+                echo "::warning:: Could not grant roles/aiplatform.user to ${RUNTIME_SA}. Ensure this binding exists once."
               }
+          else
+            echo "::error::RUNTIME_SA is not set. Add repo variable RUNTIME_SA."
+            exit 1
           fi
           
-      - name: Grant GCS Object Admin to runtime SA
+      - name: Grant GCS Object Admin to runtime SA (for R/W data)
         run: |
           set -euo pipefail
           if [[ -n "${RUNTIME_SA:-}" ]]; then
             gcloud storage buckets add-iam-policy-binding gs://${BUCKET_NAME} \
               --member="serviceAccount:${RUNTIME_SA}" \
               --role="roles/storage.objectAdmin" || {
-                echo "::warning:: Could not grant roles/storage.objectAdmin"
+                echo "::warning:: Could not grant roles/storage.objectAdmin to ${RUNTIME_SA}. Ensure this binding exists once."
               }
+          else
+            echo "::error::RUNTIME_SA is not set. Add repo variable RUNTIME_SA."
+            exit 1
           fi
       
-      # --- 4. CLOUD SCHEDULER SETUP ---
-      - name: Bootstrap IAM for Scheduler OIDC
+      # --- 4. CLOUD SCHEDULER SETUP (OIDC) ---
+
+      - name: Bootstrap IAM for Scheduler OIDC (runtime SA)
         run: |
           set -euo pipefail
           PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
           SCHED_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+          echo "Scheduler agent: ${SCHED_AGENT}"
 
           gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SA}" \
             --member="serviceAccount:${SCHED_AGENT}" \
-            --role="roles/iam.serviceAccountTokenCreator" || true
+            --role="roles/iam.serviceAccountTokenCreator" || {
+              echo "::error::Permission denied adding tokenCreator to ${RUNTIME_SA}. Run (once as project owner):"
+              echo "gcloud iam service-accounts add-iam-policy-binding \"${RUNTIME_SA}\" --member=\"serviceAccount:${SCHED_AGENT}\" --role=\"roles/iam.serviceAccountTokenCreator\""
+              exit 1
+            }
 
           gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SA}" \
             --member="serviceAccount:${DEPLOYER_SA}" \
-            --role="roles/iam.serviceAccountUser" || true
+            --role="roles/iam.serviceAccountUser" || {
+              echo "::error::Permission denied adding ServiceAccountUser for ${DEPLOYER_SA} on ${RUNTIME_SA}. Run:"
+              echo "gcloud iam service-accounts add-iam-policy-binding \"${RUNTIME_SA}\" --member=\"serviceAccount:${DEPLOYER_SA}\" --role=\"roles/iam.serviceAccountUser\""
+              exit 1
+            }
 
-      - name: Create/Update Cloud Scheduler job
+      - name: Create/Update Cloud Scheduler job (:1 ET, uses runtime SA OIDC)
         shell: bash
         run: |
           set -euo pipefail
@@ -159,7 +172,6 @@ jobs:
           URL="${{ steps.cfurl.outputs.url }}"
           [[ -z "${URL}" ]] && { echo "Function URL empty"; exit 1; }
 
-          # FIX: Added --headers="Content-Type=application/json" so the Python script can parse the body
           if gcloud scheduler jobs describe "$JOB_NAME" --location="${REGION}" >/dev/null >&1; then
             gcloud scheduler jobs update http "$JOB_NAME" \
               --location="${REGION}" \
@@ -167,7 +179,6 @@ jobs:
               --time-zone="America/New_York" \
               --uri="${URL}" \
               --http-method=POST \
-              --headers="Content-Type=application/json" \
               --message-body='${{ env.SCHEDULE_BODY }}' \
               --oidc-service-account-email="${RUNTIME_SA}" \
               --oidc-token-audience="${URL}"
@@ -178,7 +189,6 @@ jobs:
               --time-zone="America/New_York" \
               --uri="${URL}" \
               --http-method=POST \
-              --headers="Content-Type=application/json" \
               --message-body='${{ env.SCHEDULE_BODY }}' \
               --oidc-service-account-email="${RUNTIME_SA}" \
               --oidc-token-audience="${URL}"
