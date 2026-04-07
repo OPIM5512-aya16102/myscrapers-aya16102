@@ -81,11 +81,40 @@ def get_feature_names(preprocessor):
             except Exception:
                 names.extend(cols)
     return names
+def _read_csv_from_gcs(client: storage.Client, bucket: str, key: str) -> pd.DataFrame:
+    b = client.bucket(bucket)
+    blob = b.blob(key)
+    if not blob.exists():
+        raise FileNotFoundError(f"gs://{bucket}/{key} not found")
+    return pd.read_csv(io.BytesIO(blob.download_as_bytes()))
 
-# ---------------- MAIN ----------------
-def run_once(dry_run=False):
+def _write_csv_to_gcs(client: storage.Client, bucket: str, key: str, df: pd.DataFrame):
+    b = client.bucket(bucket)
+    blob = b.blob(key)
+    blob.upload_from_string(df.to_csv(index=False), content_type="text/csv")
+
+def _clean_numeric(s: pd.Series) -> pd.Series:
+    # Strip $, commas, spaces; keep digits and dot
+    s = s.astype(str).str.replace(r"[^\d.]+", "", regex=True).str.strip()
+    return pd.to_numeric(s, errors="coerce")
+
+def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int = 10):
     client = storage.Client(project=PROJECT_ID)
-    df = read_csv(client)
+    df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
+
+    required = {"scraped_at", "price", "make", "model", "year", "mileage","transmission","color","fuel","city","state","zipcode"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    # --- Parse timestamps and choose local-day split ---
+    dt = pd.to_datetime(df["scraped_at"], errors="coerce", utc=True)
+    df["scraped_at_dt_utc"] = dt
+    try:
+        df["scraped_at_local"] = df["scraped_at_dt_utc"].dt.tz_convert(TIMEZONE)
+    except Exception:
+        df["scraped_at_local"] = df["scraped_at_dt_utc"]
+    df["date_local"] = df["scraped_at_local"].dt.date
 
     # -------- CLEAN --------
     df["zipcode"] = df["zipcode"].astype(str).str.zfill(5)
