@@ -17,7 +17,7 @@ env:
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
 
   # Root GCS path where runs live
-  GCS_BASE_PREFIX: "preds"
+  GCS_BASE_PREFIX: "structured_v2/preds"
 
   # Local repo folder
   OUTPUT_DIR: "results"
