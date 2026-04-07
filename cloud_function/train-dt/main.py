@@ -176,13 +176,34 @@ def run_once(dry_run=False):
             # FIX: Inserted 'name' and 'top_feats'
             logging.info(f"[{name}] TOP FEATURES: {top_feats}")
 
-            # ---------------- PDP ----------------
+             # ---------------- PLOT 1: FEATURE IMPORTANCE ----------------
+            plt.figure(figsize=(10, 6))
+            top_15_imp = imp_df.head(15).copy()
+            # Sort ascending so the largest bar ends up at the very top of the horizontal chart
+            top_15_imp = top_15_imp.sort_values(by="importance", ascending=True)
+            
+            plt.barh(top_15_imp["feature"], top_15_imp["importance"], color="skyblue")
+            plt.title(f"Top 15 Feature Importances - {name.upper()}")
+            plt.xlabel("Importance Score")
+            plt.tight_layout()
+
+            fi_local_path = f"/tmp/{name}_feature_importance.png"
+            plt.savefig(fi_local_path)
+            plt.close()
+
+            if not dry_run:
+                fi_gcs_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_feature_importance.png"
+                upload_file(client, fi_local_path, fi_gcs_path)
+                logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
+
+            # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
             pre = pipe.named_steps["preprocessor"]
             X_val_trans = pre.transform(X_val)
             
             if scipy.sparse.issparse(X_val_trans):
                 X_val_trans = X_val_trans.toarray()
 
+            # We use the top 3 encoded exact features (e.g. 'age', 'make_model_Toyota_Camry')
             top_encoded = imp_df["feature"].head(3).tolist()
 
             valid_idx = []
@@ -192,42 +213,42 @@ def run_once(dry_run=False):
                     valid_idx.append(feat_names.index(f))
                     valid_names.append(f)
 
-            # FIX: Inserted 'name' and 'valid_names'
-            logging.info(f"[{name}] PDP encoded features: {valid_names}")
+            logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
 
             for idx, name_ in zip(valid_idx, valid_names):
                 try:
-                    plt.figure()
+                    # Provide an explicit axes to safely render into
+                    fig, ax = plt.subplots(figsize=(8, 6))
+                    
                     PartialDependenceDisplay.from_estimator(
-                        inner_model,       # raw unwrapped model
-                        X_val_trans,       # dense encoded matrix
+                        inner_model,       
+                        X_val_trans,       
                         features=[idx],
-                        kind="average"
+                        feature_names=feat_names, # Maps indices back to real names for axes labels
+                        kind="average",
+                        ax=ax
                     )
 
                     safe_feat = name_.replace("/", "_").replace(" ", "_")
-                    
-                    # FIX: Interpolated actual variables
                     path = f"/tmp/{name}_pdp_{safe_feat}.png"
 
+                    plt.title(f"PDP for {safe_feat} ({name.upper()})")
+                    plt.tight_layout()
                     plt.savefig(path, bbox_inches="tight")
-                    plt.close()
+                    plt.close(fig)
 
                     if not dry_run:
-                        # FIX: Interpolated variables for paths
                         gcs_pdp_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_pdp_{safe_feat}.png"
                         upload_file(client, path, gcs_pdp_path)
-
-                    logging.info(f"[{name}] PDP saved: {path}")
+                        logging.info(f"[{safe_feat}] PDP uploaded to GCS: {gcs_pdp_path}")
 
                 except Exception as e:
-                    # FIX: Added actual error and name vars
-                    logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
-                    plt.close()
+                    logging.warning(f"[{name}] PDP failed for '{name_e}': {e}")
+                    plt.close('all')
         else:
-            # FIX: Inserted name
             logging.warning(f"[{name}] has no feature_importances_")
 
+            
         # ---------------- SAVE MODEL ----------------
         # FIX: Added name
         local_model = f"/tmp/{name}.joblib"
