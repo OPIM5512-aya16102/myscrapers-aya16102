@@ -103,7 +103,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     client = storage.Client(project=PROJECT_ID)
     df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
 
-    required = {"scraped_at", "price", "make", "model", "year", "mileage","transmission","color","fuel","city","state","zipcode"}
+    required = {"scraped_at", "post_id" "price", "make", "model", "year", "mileage","transmission","color","fuel","city","state","zipcode"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
@@ -118,33 +118,46 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     df["date_local"] = df["scraped_at_local"].dt.date
 
     # -------- CLEAN --------
+    current_year = pd.Timestamp.now(tz="America/New_York").year
     df["zipcode"] = df["zipcode"].astype(str).str.zfill(5)
     df["make_model"] = df["make"] + "_" + df["model"]
-    df["age"] = 2026 - df["year"]
+    df["age"] = current_year - df["year"]
 
     df["price_num"] = clean_numeric(df["price"])
     df["mileage_num"] = clean_numeric(df["mileage"])
     # Ensure price is strictly positive for log10 transformation
     df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
-    orig_rows = len(df)
-    valid_price_rows = int(df["price_num"].notna().sum())
-    logging.info("Rows total=%d | with valid numeric price=%d", orig_rows, valid_price_rows)
 
-    counts = df["date_local"].value_counts().sort_index()
-    logging.info("Recent date counts (local): %s", json.dumps({str(k): int(v) for k, v in counts.tail(8).items()}))
+    # ---------------------------------------------------------
+    # 2. "FIRST-SEEN" DEDUPLICATION TO PREVENT LEAKAGE
+    # ---------------------------------------------------------
+    # Sort ascending so the OLDEST (first) scrape of a post_id is at the top
+    df = df.sort_values("scraped_at_dt_utc", ascending=True)
 
+    # Drop duplicates, keeping ONLY the first time we ever saw this post_id
+    orig_count = len(df)
+    df = df.drop_duplicates(subset=["post_id"], keep="first").copy()
+    
+    logging.info(f"Deduplication: Kept {len(df)} unique cars out of {orig_count} total scrapes based on post_id.")
+
+
+    # ---------------------------------------------------------
+    # 3. SPLIT DATA (TRAIN ON HISTORY, TEST ON BRAND NEW)
+    # ---------------------------------------------------------
     unique_dates = sorted(d for d in df["date_local"].dropna().unique())
     if len(unique_dates) < 2:
         return {"status": "noop", "reason": "need at least two distinct dates", "dates": [str(d) for d in unique_dates]}
 
     today_local = unique_dates[-1]
-    train_df   = df[df["date_local"] <  today_local].copy()
+    
+    # Train on all unique post_ids that hit the market BEFORE today
+    train_df   = df[df["date_local"] < today_local].copy()
+    
+    # Test ONLY on brand new post_ids that hit the market TODAY
     holdout_df = df[df["date_local"] == today_local].copy()
 
-    train_df = train_df[train_df["price_num"].notna()]
-    dropped_for_target = int((df["date_local"] < today_local).sum()) - int(len(train_df))
-    logging.info("Train rows after target clean: %d (dropped_for_target=%d)", len(train_df), dropped_for_target)
-    logging.info("Holdout rows today (%s): %d", today_local, len(holdout_df))
+    logging.info("Historical Train Rows: %d", len(train_df))
+    logging.info("Brand New Holdout Rows (%s): %d", today_local, len(holdout_df))
 
     if len(train_df) < 40:
         return {"status": "noop", "reason": "too few training rows", "train_rows": int(len(train_df))}
@@ -363,7 +376,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
 
        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-        # (X_val_trans is already computed above, no need to recalculate it)
+        
         top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
 
         if len(top_encoded) == 0:
