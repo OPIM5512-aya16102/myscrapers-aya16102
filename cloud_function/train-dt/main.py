@@ -123,7 +123,27 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     df["price_num"] = clean_numeric(df["price"])
     df["mileage_num"] = clean_numeric(df["mileage"])
+    valid_price_rows = int(df["price_num"].notna().sum())
+    logging.info("Rows total=%d | with valid numeric price=%d", orig_rows, valid_price_rows)
 
+    counts = df["date_local"].value_counts().sort_index()
+    logging.info("Recent date counts (local): %s", json.dumps({str(k): int(v) for k, v in counts.tail(8).items()}))
+
+    unique_dates = sorted(d for d in df["date_local"].dropna().unique())
+    if len(unique_dates) < 2:
+        return {"status": "noop", "reason": "need at least two distinct dates", "dates": [str(d) for d in unique_dates]}
+
+    today_local = unique_dates[-1]
+    train_df   = df[df["date_local"] <  today_local].copy()
+    holdout_df = df[df["date_local"] == today_local].copy()
+
+    train_df = train_df[train_df["price_num"].notna()]
+    dropped_for_target = int((df["date_local"] < today_local).sum()) - int(len(train_df))
+    logging.info("Train rows after target clean: %d (dropped_for_target=%d)", len(train_df), dropped_for_target)
+    logging.info("Holdout rows today (%s): %d", today_local, len(holdout_df))
+
+    if len(train_df) < 40:
+        return {"status": "noop", "reason": "too few training rows", "train_rows": int(len(train_df))}
     # Ensure price is strictly positive for log10 transformation
     df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
 
