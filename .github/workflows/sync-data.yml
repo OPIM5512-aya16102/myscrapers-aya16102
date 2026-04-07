@@ -50,7 +50,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # -----------------------------------
+     # -----------------------------------
       # 3. Find latest run + download ALL files
       # -----------------------------------
       - name: Sync latest run from GCS
@@ -58,37 +58,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           echo "🔍 Looking for runs in GCS..."
-
+          
+          # Safely list directories, return empty string if nothing matches
           RUNS=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ 2>/dev/null || true)
-
+          
           if [ -z "$RUNS" ]; then
             echo "⚠️ No runs found. Exiting cleanly."
             exit 0
           fi
-
+          
+          # Sort outputs and take the latest folder
           LATEST_RUN_DIR=$(echo "$RUNS" | sort | tail -1)
-
-          LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/||; s|/||")
-
+          
+          # Strip URL prefix and trailing slashes to isolate the RUN ID
+          LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/||g; s|/||g")
+          
           echo "✅ Latest run detected: $LATEST_RUN_ID"
-
+          
           LOCAL_RUN_DIR="${OUTPUT_DIR}/${LATEST_RUN_ID}"
-
           mkdir -p "$LOCAL_RUN_DIR"
-
+          
           echo "⬇️ Syncing ALL files from run..."
-
-          # 🔥 THIS IS THE KEY CHANGE:
-          # Sync entire run directory (predictions, models, plots, etc.)
+          
           gsutil -m rsync -r \
             "gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/${LATEST_RUN_ID}" \
             "$LOCAL_RUN_DIR"
-
+            
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
 
-      # -----------------------------------
+     # -----------------------------------
       # 4. Commit + push
       # -----------------------------------
       - name: Commit and Push
@@ -96,27 +95,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+          
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
+          
           RUN_ID="${{ steps.sync.outputs.run_id }}"
-
-          if [ -z "${RUN_ID:-}" ]; then
+          
+          if [ -z "${RUN_ID}" ]; then
             echo "⚠️ No run_id found. Skipping commit."
             exit 0
           fi
-
+          
           echo "📦 Preparing commit for run: $RUN_ID"
-
-          # Always sync with remote first
-          git pull --rebase origin main
-
-          # Stage ONLY this run folder
-          git add ${OUTPUT_DIR}/${RUN_ID}
-
-          # Commit safely
-          git commit -m "🤖 Sync: all artifacts for run ${RUN_ID}" || echo "Nothing to commit"
-
-          # Push changes
-          git push
+          
+          # Always sync with remote first (use dynamic branch name)
+          git pull --rebase origin ${{ github.ref_name }}
+          
+          # Stage ONLY this run folder (safely quoted)
+          git add "${OUTPUT_DIR}/${RUN_ID}"
+          
+          # Check if there are actually files to commit to avoid Git errors
+          if [[ -n $(git status --porcelain) ]]; then
+            git commit -m "🤖 Sync: all artifacts for run ${RUN_ID}"
+            git push origin ${{ github.ref_name }}
+          else
+            echo "No new files to commit. Remote is up to date."
+          fi

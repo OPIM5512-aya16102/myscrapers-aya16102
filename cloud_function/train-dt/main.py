@@ -16,6 +16,7 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.inspection import PartialDependenceDisplay
 import matplotlib.pyplot as plt
 import joblib
+from sklearn.inspection import permutation_importance
 
 # ---------------- ENV ----------------
 PROJECT_ID = os.getenv("PROJECT_ID", "")
@@ -150,7 +151,7 @@ def run_once(dry_run=False):
         mae = float(mean_absolute_error(y_val, preds))
         results[name] = mae
 
-        # ---------------- FEATURE IMPORTANCE ----------------
+        # ---------------- PERMUTATION IMPORTANCE ----------------
         clf = pipe.named_steps["clf"]
 
         # unwrap TransformedTargetRegressor safely
@@ -159,14 +160,50 @@ def run_once(dry_run=False):
         else:
             inner_model = clf
 
-        if hasattr(inner_model, "feature_importances_"):
-            feat_names = get_feature_names(pipe.named_steps["preprocessor"])
-            importances = inner_model.feature_importances_
+        
+        try:
+            pre = pipe.named_steps["preprocessor"]
+            X_val_trans = pre.transform(X_val)
+
+            if scipy.sparse.issparse(X_val_trans):
+                X_val_trans = X_val_trans.toarray()
+
+            feat_names = get_feature_names(pre)
+
+            perm = permutation_importance(
+                inner_model,
+                X_val_trans,
+                y_val,
+                n_repeats=5,
+                random_state=42,
+                scoring="neg_mean_absolute_error",
+                n_jobs=-1
+            )
 
             imp_df = pd.DataFrame({
                 "feature": feat_names,
-                "importance": importances
+                "importance": perm.importances_mean,
+                "std": perm.importances_std
             }).sort_values("importance", ascending=False)
+
+            # ✅ SAVE permutation importance errors
+            err_df = pd.DataFrame({
+                "feature": feat_names,
+                "importance_mean": perm.importances_mean,
+                "importance_std": perm.importances_std
+            })
+
+            err_local = f"/tmp/{name}_perm_importance.csv"
+            err_df.to_csv(err_local, index=False)
+
+            if not dry_run:
+                gcs_err_path = f"{OUTPUT_PREFIX}/{base_path}/errors/{name}_perm_importance.csv"
+                upload_file(client, err_local, gcs_err_path)
+                logging.info(f"[{name}] Uploaded permutation importance errors: {gcs_err_path}")
+
+        except Exception as e:
+            logging.warning(f"[{name}] Permutation importance failed: {e}")
+            imp_df = pd.DataFrame({"feature": [], "importance": []})
 
             agg = imp_df.groupby(
                 imp_df["feature"].str.split("_").str[0]
@@ -243,7 +280,7 @@ def run_once(dry_run=False):
                         logging.info(f"[{safe_feat}] PDP uploaded to GCS: {gcs_pdp_path}")
 
                 except Exception as e:
-                    logging.warning(f"[{name}] PDP failed for '{name_e}': {e}")
+                    logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
                     plt.close('all')
         else:
             logging.warning(f"[{name}] has no feature_importances_")
