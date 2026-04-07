@@ -241,8 +241,17 @@ def run_once(dry_run=False):
                 X_val_trans = X_val_trans.toarray()
 
             # We use the top 3 encoded exact features (e.g. 'age', 'make_model_Toyota_Camry')
-            top_encoded = imp_df["feature"].head(3).tolist()
+            
+            # Ensure we only use permutation importance results
+            if not imp_df.empty:
+                top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
+            else:
+                top_encoded = []
 
+            if len(top_encoded) == 0:
+                logging.warning(f"[{name}] No features available for PDP (permutation importance failed)")
+                continue
+            
             valid_idx = []
             valid_names = []
             for f in top_encoded:
