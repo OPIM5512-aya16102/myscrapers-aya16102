@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import joblib
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import RandomizedSearchCV, KFold
+from matplotlib.ticker import FuncFormatter
 
 # ---------------- ENV ----------------
 PROJECT_ID = os.getenv("PROJECT_ID", "")
@@ -392,6 +393,18 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
 
+        # FIX 1: Generate PDP using a sample of historical TRAINING data, not the tiny holdout data
+        # This ensures rare cars/features actually exist in the data we plot
+        X_train_trans = pre.transform(X)
+        if scipy.sparse.issparse(X_train_trans):
+            X_train_trans = X_train_trans.toarray()
+            
+        np.random.seed(42)
+        sample_size = min(2000, X_train_trans.shape[0]) # Cap at 2000 rows for fast processing
+        idx_sample = np.random.choice(X_train_trans.shape[0], sample_size, replace=False)
+        X_pdp_bg = X_train_trans[idx_sample]
+
+
         for idx, name_ in zip(valid_idx, valid_names):
             try:
                 # Provide an explicit axes to safely render into
@@ -399,12 +412,23 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                 
                 PartialDependenceDisplay.from_estimator(
                     inner_model,       
-                    X_hold_trans,       
+                    X_pdp_bg,       
                     features=[idx],
                     feature_names=feat_names, # Maps indices back to real names for axes labels
                     kind="average",
                     ax=ax
                 )
+
+                # FIX 2: Clean up the X-Axis for Binary (One-Hot Encoded) Categorical Features
+                unique_vals = np.unique(X_pdp_bg[:, idx])
+                if len(unique_vals) <= 2 and set(unique_vals).issubset({0.0, 1.0, 0, 1}):
+                    ax.set_xticks([0, 1])
+                    ax.set_xticklabels(["False (Doesn't Have)", "True (Has)"])
+                    ax.set_xlim(-0.5, 1.5)
+
+                # FIX 3: Convert the Log10 Y-Axis back into Actual Dollar Amounts
+                formatter = FuncFormatter(lambda y, pos: f"${int(10**y):,}")
+                ax.yaxis.set_major_formatter(formatter)
 
                 safe_feat = name_.replace("/", "_").replace(" ", "_")
                 path = f"/tmp/{name}_pdp_{safe_feat}.png"
