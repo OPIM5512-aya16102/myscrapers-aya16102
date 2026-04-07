@@ -1,0 +1,63 @@
+make_model,color,condition,transmission,fuel,city,state,age,mileage_num,actual,pred
+pontiac_firebird trans am,green,excellent,automatic,gas,New Haven,CT,33,118000,21500.0,11103.789
+Ram_Dakota,black,,automatic,gas,Bridgeport,CT,15,129550,9700.0,11157.573
+Honda_Accord LX,,fair,automatic,gas,Stratford,CT,21,220000,2500.0,1473.7947
+Audi_Q3,white,excellent,automatic,gas,Branford,CT,8,115829,9900.0,15083.83
+Toyota_Rav4,,good,automatic,gas,Meriden,CT,18,220000,3900.0,3074.69
+Ford_Edge,gray,excellent,automatic,gas,Stamford,CT,8,137100,10800.0,13625.357
+Ford_Mustang,grey,good,manual,gas,Newtown,CT,27,119000,3500.0,9192.623
+Chevy_Equinox,white,good,automatic,gas,Milford,CT,13,138000,5900.0,8052.7036
+Volkswagen_Jetta Sedan,red,good,automatic,gas,Stamford,CT,11,141800,6800.0,8549.745
+Subaru_Crosstrek,black,like_new,automatic,gas,Meriden,CT,8,188779,6900.0,14253.456
+Honda_Civic LX,red,excellent,automatic,gas,Branford,CT,14,159543,5995.0,5775.7656
+Subaru_Outback,white,excellent,automatic,gas,East Granby,CT,11,176255,7998.0,8959.989
+Honda_Civic LX,gray,excellent,manual,gas,North Haven,CT,8,101000,18500.0,3175.5164
+Mercedes-Benz_S-class S550,black,like_new,automatic,gas,Madison,CT,14,68000,18000.0,17842.443
+Chevrolet_Traverse,black,good,automatic,gas,Bridgeport,CT,7,87713,15200.0,14969.561
+Nissan_Rogue,blue,good,automatic,gas,Bridgeport,CT,6,82675,15850.0,14915.011
+subaru_forester,silver,like_new,automatic,gas,Meriden,CT,11,150818,6900.0,11953.657
+Ford_F-150 Roush Raptor,black,excellent,automatic,gas,New Haven,CT,8,71621,21630.0,29445.273
+Honda_CR-V EX,brown,excellent,automatic,gas,Branford,CT,12,130000,12900.0,11464.529
+Cadillac_CTS,,like_new,automatic,gas,West Haven,CT,16,88498,6988.0,9766.456
+Jeep_Grand Cherokee Altitude AWD,black,like_new,automatic,gas,Meriden,CT,3,23023,29900.0,31661.41
+honda_accord,black,like_new,automatic,gas,New Haven,CT,3,77500,20000.0,25845.02
+GMC_Acadia,black,,automatic,gas,Bridgeport,CT,9,120894,12500.0,10476.598
+honda_accord sport,grey,excellent,automatic,gas,Shelton,CT,13,229000,4500.0,3250.7593
+Land Rover_Range Rover Sport,white,good,,gas,Bronx,NY,6,69945,24495.0,27020.867
+Dodge_Neon,,,automatic,gas,Wallingford,CT,24,150000,3288.0,3293.2583
+Subaru_Outback,red,like_new,automatic,gas,Branford,CT,8,117800,11800.0,10599.764
+volkswagen_tiguan,grey,excellent,automatic,gas,New Milford,CT,3,22500,20000.0,21741.205
+Mini Cooper_Countryman S Hatchback,white,excellent,automatic,gas,Branford,CT,14,118000,5885.0,5987.937
+Chevy_express 2500,,good,manual,gas,Southbury,CT,15,200000,3300.0,5567.272
+Hyundai_Elantra GLS,silver,good,automatic,gas,West Haven,CT,15,110000,4900.0,7839.9683
+Chevy_El Camino,maroon/silver,good,automatic,gas,Middlebury,CT,40,1234567,6000.0,6051.3066
+Ford_f-250,silver,good,manual,diesel,New Haven,CT,43,80000,12500.0,9604.369
+Chrysler_Pacifica Touring L,blue,like_new,automatic,gas,Hudson,NH,3,20228,68993.0,45956.438
+Ford_Country Squire Wagon,black,good,manual,gas,Naugatuck,CT,75,91000,22500.0,9957.79
+Pontiac_Trans Am,black,,manual,gas,Bridgeport,CT,49,64877,59500.0,22080.6
+Hyundai_Sonata GLS,grey,excellent,automatic,gas,Shelton,CT,13,130000,4500.0,4598.2534
+Toyota_Camry XLE,Tan,like_new,automatic,gas,Milford,CT,25,165000,3600.0,5605.8164
+Toyota_Corolla,gold,good,automatic,gas,Bridgeport,CT,18,139374,5900.0,7176.9336
+Chevrolet_Express 1500,beige,good,automatic,gasoline,Hudson,NH,21,66167,25993.0,25623.98
+Dodge_Neon,,good,automatic,gas,Wallingford,CT,24,150000,3288.0,3293.2583
+Subaru_Outback,white,good,automatic,gas,East Granby,CT,10,165728,9599.0,9979.856
+BMW_X3 2.8i X-drive SUV,white,excellent,automatic,gas,Branford,CT,10,124000,9885.0,7404.0063
+Audi_Q5 Premium,black,excellent,automatic,gas,Old Saybrook,CT,14,171709,7900.0,7266.9585
+Chevrolet_Silverado 1500,blue,good,automatic,gas,Milford,CT,18,167190,6875.0,4402.3647
+Jeep_Grand Cherokee Laredo,black,good,automatic,gas,West Haven,CT,17,117810,6800.0,5544.677
+chevy_silverado 1500,blue,like_new,automatic,gas,North Haven,CT,10,90000,2000.0,2096.875
+Toyota_Prius Two,silver,good,automatic,hybrid,Bethany,CT,10,173177,9499.0,7558.33
+Volkswagen_Jetta Sedan,red,good,automatic,gas,Stamford,CT,11,141800,6800.0,8549.745
+Jaguar_XF,black,good,automatic,gas,Bridgeport,CT,11,79004,11900.0,16010.252
+Toyota_Avalon Hybrid,burgundy,good,automatic,gas,Bridgeport,CT,13,100775,14800.0,12014.869
+Dodge_Neon,,good,automatic,gas,Wallingford,CT,24,150000,3288.0,3293.2583
+Ford_E450,white,,automatic,CNG,New Haven,CT,16,149000,41995.0,3590.1167
+Ford_Ranger XLT,red,excellent,automatic,gas,Trumbull,CT,26,173000,8499.0,4339.893
+Nissan_Sentra,red,good,automatic,gas,Stamford,CT,8,105700,9800.0,15064.746
+Mercedes-Benz_GL 450 4MATIC,black,excellent,automatic,gas,Meriden,CT,11,124948,10950.0,10659.191
+Dodge_Neon,,good,automatic,gas,Wallingford,CT,24,150000,3288.0,3293.2583
+Jeep_Cherokee,gold,good,automatic,gas,Bridgeport,CT,26,120123,4900.0,9668.003
+Tesla_Model 3,silver,good,,electric,Bronx,NY,8,75512,15395.0,23366.988
+Ford_F-350,white,excellent,automatic,diesel,Shelton,CT,18,126000,10900.0,4479.946
+jeep_grand cherokee laredo,black,good,automatic,gas,Oakville,CT,12,210000,4950.0,6104.7603
+Ford_Focus,,good,automatic,gas,Wallingford,CT,19,185000,3288.0,3142.1487
