@@ -188,16 +188,13 @@ def _vertex_extract_fields(raw_text: str) -> dict:
         "Rules: integers for price/year/mileage; price in USD; mileage in miles; "
         "Figure what what the make and model is given the provided information."
         "transmission can be manual or automatic; or if not listed, write null."
-        "Try to figure out the city and state. Do not infer values not explicitly present."
-        "Use the city and state features to estimate zip code ONLY."
+        "Try to figure out the city, state and zipcode."
         "Zip code should be 5 digits. If its four digits add a 0 to the start."
-        "If you can't find the zipcode in the text, populate by referencing the internet for the zip code of the major area obtained using the city and state."
-        "Allowed condition values are new, like_new, excellent, good, fair, and salvage."
         "Assign condition based on the strongest evidence in the text."
         "Follow these mapping rules for condition: new: brand new vehicle, like_new: very minimal wear and extremely low mileage, excellent: very well maintained and minor cosmetic wear only, good: normal wear for age and may have small issues or cosmetic defects, fair: noticeable wear and needs repairs, salvage: rebuilt title and major damage history."
         "Categorize colors into their simpler forms, for example Scarlet Red can just be red." 
         "Make sure that the spelling for color is uniform. For example, grey and gray."
-        "do not infer values not explicitly present; do not add extra keys. Zipcode is an exception"
+        "do not infer values not explicitly present; do not add extra keys."
     )
 
     # FIX: Combine instruction and text into one prompt string (SDK compatibility)
