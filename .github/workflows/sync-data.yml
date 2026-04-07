@@ -17,7 +17,7 @@ env:
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
 
   # Root GCS path where runs live
-  GCS_BASE_PREFIX: "structured_v2/preds"
+  GCS_BASE_PREFIX: "preds"
 
   # Local repo folder
   OUTPUT_DIR: "results"
@@ -34,7 +34,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0   # IMPORTANT for rebase
+          fetch-depth: 0   
+          ref: ${{ github.ref_name }} 
 
       # -----------------------------------
       # 2. Auth to GCP
@@ -50,7 +51,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-     # -----------------------------------
+      # -----------------------------------
       # 3. Find latest run + download ALL files
       # -----------------------------------
       - name: Sync latest run from GCS
@@ -60,7 +61,6 @@ jobs:
           set -euo pipefail
           echo "🔍 Looking for runs in GCS..."
           
-          # Safely list directories, return empty string if nothing matches
           RUNS=$(gsutil ls -d gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/*/ 2>/dev/null || true)
           
           if [ -z "$RUNS" ]; then
@@ -68,10 +68,7 @@ jobs:
             exit 0
           fi
           
-          # Sort outputs and take the latest folder
           LATEST_RUN_DIR=$(echo "$RUNS" | sort | tail -1)
-          
-          # Strip URL prefix and trailing slashes to isolate the RUN ID
           LATEST_RUN_ID=$(echo "$LATEST_RUN_DIR" | sed -E "s|gs://${BUCKET_NAME}/${GCS_BASE_PREFIX}/||g; s|/||g")
           
           echo "✅ Latest run detected: $LATEST_RUN_ID"
@@ -87,7 +84,7 @@ jobs:
             
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
 
-     # -----------------------------------
+      # -----------------------------------
       # 4. Commit + push
       # -----------------------------------
       - name: Commit and Push
@@ -108,16 +105,14 @@ jobs:
           
           echo "📦 Preparing commit for run: $RUN_ID"
           
-          # Always sync with remote first (use dynamic branch name)
           git pull --rebase origin ${{ github.ref_name }}
           
-          # Stage ONLY this run folder (safely quoted)
           git add "${OUTPUT_DIR}/${RUN_ID}"
           
-          # Check if there are actually files to commit to avoid Git errors
-          if [[ -n $(git status --porcelain) ]]; then
+          # FIX: Only check for STAGED files, completely ignoring untracked credentials
+          if ! git diff --cached --quiet; then
             git commit -m "🤖 Sync: all artifacts for run ${RUN_ID}"
-            git push origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }}
           else
             echo "No new files to commit. Remote is up to date."
           fi
