@@ -165,7 +165,7 @@ def run_once(dry_run=False):
         local_csv = f"/tmp/{name}_preds.csv"
         out.to_csv(local_csv, index=False)
         logging.info(f"[{name}] Saved preds locally: {local_csv}")
-        
+
         if not dry_run:
             # FIX: Correctly built GCS paths
             gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/models/{name}.joblib"
@@ -316,7 +316,7 @@ def run_once(dry_run=False):
                 logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
                 plt.close('all')
     
-        return {"status": "ok", "mae": results}
+    return {"status": "ok", "mae": results}
             
 
 
