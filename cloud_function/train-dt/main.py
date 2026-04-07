@@ -287,17 +287,17 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         
         try:
             pre = best_pipe.named_steps["preprocessor"]
-            X_val_trans = pre.transform(X_val)
+            X_hold_trans = pre.transform(X_hold)
 
-            if scipy.sparse.issparse(X_val_trans):
-                X_val_trans = X_val_trans.toarray()
+            if scipy.sparse.issparse(X_hold_trans):
+                X_hold_trans = X_hold_trans.toarray()
 
             feat_names = get_feature_names(pre)
 
             perm = permutation_importance(
                 clf,
-                X_val_trans,
-                y_val,
+                X_hold_trans,
+                y_hold,
                 n_repeats=5,
                 random_state=42,
                 scoring="neg_mean_absolute_error",
@@ -386,7 +386,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                 
                 PartialDependenceDisplay.from_estimator(
                     inner_model,       
-                    X_val_trans,       
+                    X_hold_trans,       
                     features=[idx],
                     feature_names=feat_names, # Maps indices back to real names for axes labels
                     kind="average",
