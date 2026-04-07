@@ -171,7 +171,7 @@ def run_once(dry_run=False):
             feat_names = get_feature_names(pre)
 
             perm = permutation_importance(
-                inner_model,
+                cls,
                 X_val_trans,
                 y_val,
                 n_repeats=5,
@@ -205,94 +205,98 @@ def run_once(dry_run=False):
             logging.warning(f"[{name}] Permutation importance failed: {e}")
             imp_df = pd.DataFrame({"feature": [], "importance": []})
 
-            agg = imp_df.groupby(
-                imp_df["feature"].str.split("_").str[0]
-            )["importance"].sum().sort_values(ascending=False)
-
-            top_feats = agg.head(3).index.tolist()
-            # FIX: Inserted 'name' and 'top_feats'
-            logging.info(f"[{name}] TOP FEATURES: {top_feats}")
-
-             # ---------------- PLOT 1: FEATURE IMPORTANCE ----------------
-            plt.figure(figsize=(10, 6))
-            top_15_imp = imp_df.head(15).copy()
-            # Sort ascending so the largest bar ends up at the very top of the horizontal chart
-            top_15_imp = top_15_imp.sort_values(by="importance", ascending=True)
+            # ✅ FIX: Moved all of this logic OUT of the except block!
+        if imp_df.empty:
+            logging.warning(f"[{name}] No features available for plotting. Skipping.")
+            continue
             
-            plt.barh(top_15_imp["feature"], top_15_imp["importance"], color="skyblue")
-            plt.title(f"Top 15 Feature Importances - {name.upper()}")
-            plt.xlabel("Importance Score")
-            plt.tight_layout()
+        agg = imp_df.groupby(
+            imp_df["feature"].str.split("_").str[0]
+        )["importance"].sum().sort_values(ascending=False)
 
-            fi_local_path = f"/tmp/{name}_feature_importance.png"
-            plt.savefig(fi_local_path)
-            plt.close()
+        top_feats = agg.head(3).index.tolist()
+        # FIX: Inserted 'name' and 'top_feats'
+        logging.info(f"[{name}] TOP AGGREGATED FEATURES: {top_feats}")
 
-            if not dry_run:
-                fi_gcs_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_feature_importance.png"
-                upload_file(client, fi_local_path, fi_gcs_path)
-                logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
-
-            # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-            pre = pipe.named_steps["preprocessor"]
-            X_val_trans = pre.transform(X_val)
+        # ---------------- PLOT 1: FEATURE IMPORTANCE ----------------
+        plt.figure(figsize=(10, 6))
+        top_15_imp = imp_df.head(15).copy()
+        # Sort ascending so the largest bar ends up at the very top of the horizontal chart
+        top_15_imp = top_15_imp.sort_values(by="importance", ascending=True)
             
-            if scipy.sparse.issparse(X_val_trans):
-                X_val_trans = X_val_trans.toarray()
+        plt.barh(top_15_imp["feature"], top_15_imp["importance"], color="skyblue")
+        plt.title(f"Top 15 Feature Importances - {name.upper()}")
+        plt.xlabel("Importance Score")
+        plt.tight_layout()
 
-            # We use the top 3 encoded exact features (e.g. 'age', 'make_model_Toyota_Camry')
+        fi_local_path = f"/tmp/{name}_feature_importance.png"
+        plt.savefig(fi_local_path)
+        plt.close()
+
+        if not dry_run:
+            fi_gcs_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_feature_importance.png"
+            upload_file(client, fi_local_path, fi_gcs_path)
+            logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
+
+        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
+        pre = pipe.named_steps["preprocessor"]
+        X_val_trans = pre.transform(X_val)
             
-            # Ensure we only use permutation importance results
-            if not imp_df.empty:
-                top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
-            else:
-                top_encoded = []
+        if scipy.sparse.issparse(X_val_trans):
+            X_val_trans = X_val_trans.toarray()
 
-            if len(top_encoded) == 0:
-                logging.warning(f"[{name}] No features available for PDP (permutation importance failed)")
-                continue
-            
-            valid_idx = []
-            valid_names = []
-            for f in top_encoded:
-                if f in feat_names:
-                    valid_idx.append(feat_names.index(f))
-                    valid_names.append(f)
-
-            logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
-
-            for idx, name_ in zip(valid_idx, valid_names):
-                try:
-                    # Provide an explicit axes to safely render into
-                    fig, ax = plt.subplots(figsize=(8, 6))
-                    
-                    PartialDependenceDisplay.from_estimator(
-                        inner_model,       
-                        X_val_trans,       
-                        features=[idx],
-                        feature_names=feat_names, # Maps indices back to real names for axes labels
-                        kind="average",
-                        ax=ax
-                    )
-
-                    safe_feat = name_.replace("/", "_").replace(" ", "_")
-                    path = f"/tmp/{name}_pdp_{safe_feat}.png"
-
-                    plt.title(f"PDP for {safe_feat} ({name.upper()})")
-                    plt.tight_layout()
-                    plt.savefig(path, bbox_inches="tight")
-                    plt.close(fig)
-
-                    if not dry_run:
-                        gcs_pdp_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_pdp_{safe_feat}.png"
-                        upload_file(client, path, gcs_pdp_path)
-                        logging.info(f"[{safe_feat}] PDP uploaded to GCS: {gcs_pdp_path}")
-
-                except Exception as e:
-                    logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
-                    plt.close('all')
+        # We use the top 3 encoded exact features (e.g. 'age', 'make_model_Toyota_Camry')
+        
+        # Ensure we only use permutation importance results
+        if not imp_df.empty:
+            top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
         else:
-            logging.warning(f"[{name}] has no feature_importances_")
+            top_encoded = []
+
+        if len(top_encoded) == 0:
+            logging.warning(f"[{name}] No features available for PDP (permutation importance failed)")
+            continue
+        
+        valid_idx = []
+        valid_names = []
+        for f in top_encoded:
+            if f in feat_names:
+                valid_idx.append(feat_names.index(f))
+                valid_names.append(f)
+
+        logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
+
+        for idx, name_ in zip(valid_idx, valid_names):
+            try:
+                # Provide an explicit axes to safely render into
+                fig, ax = plt.subplots(figsize=(8, 6))
+                
+                PartialDependenceDisplay.from_estimator(
+                    inner_model,       
+                    X_val_trans,       
+                    features=[idx],
+                    feature_names=feat_names, # Maps indices back to real names for axes labels
+                    kind="average",
+                    ax=ax
+                )
+
+                safe_feat = name_.replace("/", "_").replace(" ", "_")
+                path = f"/tmp/{name}_pdp_{safe_feat}.png"
+
+                plt.title(f"PDP for {safe_feat} ({name.upper()})")
+                plt.tight_layout()
+                plt.savefig(path, bbox_inches="tight")
+                plt.close(fig)
+
+                if not dry_run:
+                    gcs_pdp_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_pdp_{safe_feat}.png"
+                    upload_file(client, path, gcs_pdp_path)
+                    logging.info(f"[{safe_feat}] PDP uploaded to GCS: {gcs_pdp_path}")
+
+            except Exception as e:
+                logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
+                plt.close('all')
+    
 
             
         # ---------------- SAVE MODEL ----------------
