@@ -17,6 +17,7 @@ from sklearn.inspection import PartialDependenceDisplay
 import matplotlib.pyplot as plt
 import joblib
 from sklearn.inspection import permutation_importance
+from sklearn.model_selection import RandomizedSearchCV, KFold
 
 # ---------------- ENV ----------------
 PROJECT_ID = os.getenv("PROJECT_ID", "")
@@ -123,6 +124,9 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     df["price_num"] = clean_numeric(df["price"])
     df["mileage_num"] = clean_numeric(df["mileage"])
+    # Ensure price is strictly positive for log10 transformation
+    df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
+    orig_rows = len(df)
     valid_price_rows = int(df["price_num"].notna().sum())
     logging.info("Rows total=%d | with valid numeric price=%d", orig_rows, valid_price_rows)
 
@@ -144,11 +148,29 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     if len(train_df) < 40:
         return {"status": "noop", "reason": "too few training rows", "train_rows": int(len(train_df))}
-    # Ensure price is strictly positive for log10 transformation
-    df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
+    
 
-    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state"]
+    target = "price_num"
+    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state", "make_model", "zipcode"]
     num_cols = ["age", "mileage_num"]
+    feats = cat_cols + num_cols
+    param_grids = {
+        "dt": {
+            "clf__max_depth": [5, 10, 15, 20, None],
+            "clf__min_samples_leaf": [1, 5, 10, 20]
+        },
+        "rf": {
+            "clf__regressor__n_estimators": [100, 200],
+            "clf__regressor__max_depth": [10, 20, None],
+            "clf__regressor__min_samples_leaf": [1, 5, 10]
+        },
+        "xgb": {
+            "clf__regressor__n_estimators": [100, 200],
+            "clf__regressor__max_depth": [3, 6, 10],
+            "clf__regressor__learning_rate": [0.05, 0.1],
+            "clf__regressor__subsample": [0.8, 1.0]
+        }
+    }
 
     preprocessor = ColumnTransformer([
         ("make_model", Pipeline([
@@ -178,8 +200,8 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         )
     }
 
-    X = df[["make_model"] + cat_cols + num_cols]
-    y = df["price_num"]
+    X = train_df[feats]
+    y = train_df[target]
 
     X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
     
@@ -192,25 +214,50 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             ("clf", model)
         ])
 
-        pipe.fit(X_tr, y_tr)
+        cv = KFold(n_splits=3, shuffle=True, random_state=42)
 
-        # ---------------- PREDICTIONS & METRICS ----------------
-        preds = pipe.predict(X_val)
+        search = RandomizedSearchCV(
+            pipe,
+            param_distributions=param_grids[name],
+            n_iter=10,
+            scoring="neg_mean_absolute_error",
+            cv=cv,
+            verbose=1,
+            n_jobs=-1,
+            random_state=42
+        )
+
+        search.fit(X, y)  # ⚠️ use FULL training data (not split)
+
+        best_pipe = search.best_estimator_
+
+        logging.info(f"[{name}] Best params: {search.best_params_}")
         
-        mae = float(mean_absolute_error(y_val, preds))
-        results[name] = mae
+        # validation (optional)
+        val_preds = best_pipe.predict(X_val)
+        val_mae = mean_absolute_error(y_val, val_preds)
+
+        # ✅ HOLDOUT predictions (REAL evaluation)
+        X_hold = holdout_df[feats]
+        y_hold = holdout_df[target]
+
+        hold_preds = best_pipe.predict(X_hold)
+        hold_mae = mean_absolute_error(y_hold, hold_preds)
+
+        results[name] = {
+            "val_mae": float(val_mae),
+            "holdout_mae": float(hold_mae)
+}
 
     # ---------------- SAVE MODEL ----------------
         # FIX: Added name
         local_model = f"/tmp/{name}.joblib"
-        joblib.dump(pipe, local_model)
+        joblib.dump(best_pipe, local_model)
         logging.info(f"[{name}] Saved model locally: {local_model}")
         # ---------------- SAVE PREDICTIONS ----------------
-        out = X_val.copy()
-        out["actual"] = y_val
-        out["pred"] = preds
-
-        # FIX: Added name
+        out = X_hold.copy()
+        out["actual"] = y_hold
+        out["pred"] = hold_preds
         local_csv = f"/tmp/{name}_preds.csv"
         out.to_csv(local_csv, index=False)
         logging.info(f"[{name}] Saved preds locally: {local_csv}")
@@ -231,7 +278,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         
         # ---------------- PERMUTATION IMPORTANCE ----------------
-        clf = pipe.named_steps["clf"]
+        clf = best_pipe.named_steps["clf"]
 
         # unwrap TransformedTargetRegressor safely
         if hasattr(clf, "regressor_"):
@@ -241,7 +288,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         
         try:
-            pre = pipe.named_steps["preprocessor"]
+            pre = best_pipe.named_steps["preprocessor"]
             X_val_trans = pre.transform(X_val)
 
             if scipy.sparse.issparse(X_val_trans):
