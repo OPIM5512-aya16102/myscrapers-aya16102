@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import scipy.sparse
 from google.cloud import storage
-
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.preprocessing import OneHotEncoder
@@ -95,10 +94,9 @@ def run_once(dry_run=False):
     df["price_num"] = clean_numeric(df["price"])
     df["mileage_num"] = clean_numeric(df["mileage"])
 
-    # FIX: Ensure price is strictly positive for log10 transformation
+    # Ensure price is strictly positive for log10 transformation
     df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
 
-    # FIX: Removed "make_model" from cat_cols so it isn't duplicated bypassing TopKEncoder
     cat_cols = ["color", "condition", "transmission", "fuel", "city", "state"]
     num_cols = ["age", "mileage_num"]
 
@@ -135,12 +133,10 @@ def run_once(dry_run=False):
 
     X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
     
-    # FIX: Removed leading slash so path joins correctly on GCS
-    base_path = f"{pd.Timestamp.utcnow().strftime('%Y%m%d%H')}"
+    base_path = pd.Timestamp.now(tz="UTC").strftime('%Y%m%d%H')
     results = {}
 
     for name, model in models.items():
-        # FIX: Clone preprocessor so memory instances aren't mutually shared/overwritten
         pipe = Pipeline([
             ("preprocessor", clone(preprocessor)),
             ("clf", model)
@@ -151,7 +147,6 @@ def run_once(dry_run=False):
         # ---------------- PREDICTIONS & METRICS ----------------
         preds = pipe.predict(X_val)
         
-        # FIX: Cast metric to native python float to prevent JSON serialization 500 error
         mae = float(mean_absolute_error(y_val, preds))
         results[name] = mae
 
@@ -178,14 +173,13 @@ def run_once(dry_run=False):
             )["importance"].sum().sort_values(ascending=False)
 
             top_feats = agg.head(3).index.tolist()
-            logging.info(f"[{}] TOP FEATURES: {}")
+            # FIX: Inserted 'name' and 'top_feats'
+            logging.info(f"[{name}] TOP FEATURES: {top_feats}")
 
             # ---------------- PDP ----------------
-            # FIX: Properly indented to execute when importances exist
             pre = pipe.named_steps["preprocessor"]
             X_val_trans = pre.transform(X_val)
             
-            # FIX: PDP does not support Sparse Matrices. Cast to dense if necessary.
             if scipy.sparse.issparse(X_val_trans):
                 X_val_trans = X_val_trans.toarray()
 
@@ -198,7 +192,8 @@ def run_once(dry_run=False):
                     valid_idx.append(feat_names.index(f))
                     valid_names.append(f)
 
-            logging.info(f"[{}] PDP encoded features: {}")
+            # FIX: Inserted 'name' and 'valid_names'
+            logging.info(f"[{name}] PDP encoded features: {valid_names}")
 
             for idx, name_ in zip(valid_idx, valid_names):
                 try:
@@ -212,58 +207,62 @@ def run_once(dry_run=False):
 
                     safe_feat = name_.replace("/", "_").replace(" ", "_")
                     
-                    # FIX: Inject variables into f-strings
-                    path = f"/tmp/{}_pdp_{safe_feat}.png"
+                    # FIX: Interpolated actual variables
+                    path = f"/tmp/{name}_pdp_{safe_feat}.png"
 
                     plt.savefig(path, bbox_inches="tight")
                     plt.close()
 
                     if not dry_run:
-                        gcs_pdp_path = f"{}/{}/plots/{}_pdp_{safe_feat}.png"
+                        # FIX: Interpolated variables for paths
+                        gcs_pdp_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_pdp_{safe_feat}.png"
                         upload_file(client, path, gcs_pdp_path)
 
-                    logging.info(f"[{}] PDP saved: {path}")
+                    logging.info(f"[{name}] PDP saved: {path}")
 
                 except Exception as e:
-                    logging.warning(f"[{}] PDP failed for '{}': {}")
+                    # FIX: Added actual error and name vars
+                    logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
                     plt.close()
         else:
-            logging.warning(f"[{}] has no feature_importances_")
+            # FIX: Inserted name
+            logging.warning(f"[{name}] has no feature_importances_")
 
         # ---------------- SAVE MODEL ----------------
-        local_model = f"/tmp/{}.joblib"
+        # FIX: Added name
+        local_model = f"/tmp/{name}.joblib"
         joblib.dump(pipe, local_model)
-        logging.info(f"[{}] Saved model locally: {}")
+        logging.info(f"[{name}] Saved model locally: {local_model}")
 
         if not dry_run:
-            gcs_model_path = f"{}/{}/models/{}.joblib"
+            # FIX: Correctly built GCS paths
+            gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/models/{name}.joblib"
             upload_file(client, local_model, gcs_model_path)
-            logging.info(f"[{}] Uploaded model to GCS: {gcs_model_path}")
+            logging.info(f"[{name}] Uploaded model to GCS: {gcs_model_path}")
 
         # ---------------- SAVE PREDICTIONS ----------------
-        # FIX: Removed redundant 2nd `preds = pipe.predict(X_val)` that was here
         out = X_val.copy()
         out["actual"] = y_val
         out["pred"] = preds
 
-        local_csv = f"/tmp/{}_preds.csv"
+        # FIX: Added name
+        local_csv = f"/tmp/{name}_preds.csv"
         out.to_csv(local_csv, index=False)
-        logging.info(f"[{}] Saved preds locally: {}")
+        logging.info(f"[{name}] Saved preds locally: {local_csv}")
 
         if not dry_run:
-            gcs_csv_path = f"{}/{}/preds/{}_preds.csv"
+            # FIX: Correctly built GCS paths
+            gcs_csv_path = f"{OUTPUT_PREFIX}/{base_path}/preds/{name}_preds.csv"
             upload_file(client, local_csv, gcs_csv_path)
-            logging.info(f"[{}] Uploaded preds to GCS: {gcs_csv_path}")
+            logging.info(f"[{name}] Uploaded preds to GCS: {gcs_csv_path}")
 
     return {"status": "ok", "mae": results}
 
 
 def train_dt_http(request):
     try:
-        # FIX: Provide correct content-type header for JSON response
         return (json.dumps(run_once()), 200, {'Content-Type': 'application/json'})
     except Exception as e:
-        # Added traceback for better debug visibility if it crashes in the cloud
         return (
             json.dumps({"error": str(e), "trace": traceback.format_exc()}), 
             500, 
