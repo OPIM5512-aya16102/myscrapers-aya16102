@@ -1,9 +1,11 @@
 import os, io, json, logging, traceback
 import numpy as np
 import pandas as pd
+import scipy.sparse
 from google.cloud import storage
 
-from sklearn.compose import ColumnTransformer
+from sklearn.base import BaseEstimator, TransformerMixin, clone
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
@@ -11,13 +13,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
-
 from sklearn.metrics import mean_absolute_error
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.compose import TransformedTargetRegressor
-import matplotlib.pyplot as plt
 from sklearn.inspection import PartialDependenceDisplay
-
+import matplotlib.pyplot as plt
 import joblib
 
 # ---------------- ENV ----------------
@@ -26,7 +24,7 @@ GCS_BUCKET = os.getenv("GCS_BUCKET", "")
 DATA_KEY = os.getenv("DATA_KEY", "structured_v2/datasets/listings_master_llm.csv")
 OUTPUT_PREFIX = os.getenv("OUTPUT_PREFIX", "preds")
 
-logging.basicConfig(level="INFO")
+logging.basicConfig(level=logging.INFO)
 
 # ---------------- GCS ----------------
 def upload_file(client, local_path, gcs_path):
@@ -40,6 +38,7 @@ def read_csv(client):
 # ---------------- HELPERS ----------------
 def log10_transform(x):
     return np.log10(x)
+
 def inverse_log10(x):
     return 10 ** x
 
@@ -58,6 +57,9 @@ class TopKEncoder(BaseEstimator, TransformerMixin):
         return pd.DataFrame({
             self.col: X.iloc[:, 0].where(X.iloc[:, 0].isin(self.top), "other")
         })
+        
+    def get_feature_names_out(self, input_features=None):
+        return np.array([self.col]) if hasattr(self, 'col') else np.array(input_features or ["col"])
 
 def clean_numeric(s):
     return pd.to_numeric(
@@ -68,22 +70,20 @@ def clean_numeric(s):
 # ---------------- FEATURE NAMES ----------------
 def get_feature_names(preprocessor):
     names = []
-
     for name, trans, cols in preprocessor.transformers_:
         if name == "num":
             names.extend(cols)
         else:
             try:
-                ohe = trans.named_steps["oh"]
+                # Handle pipeline nested OHE safely
+                ohe = trans.named_steps["oh"] if isinstance(trans, Pipeline) else trans
                 names.extend(ohe.get_feature_names_out(cols))
-            except:
+            except Exception:
                 names.extend(cols)
-
     return names
 
 # ---------------- MAIN ----------------
 def run_once(dry_run=False):
-
     client = storage.Client(project=PROJECT_ID)
     df = read_csv(client)
 
@@ -95,10 +95,12 @@ def run_once(dry_run=False):
     df["price_num"] = clean_numeric(df["price"])
     df["mileage_num"] = clean_numeric(df["mileage"])
 
-    df = df[df["price_num"].notna()]
+    # FIX: Ensure price is strictly positive for log10 transformation
+    df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
 
-    cat_cols = ["make_model","color","condition","transmission","fuel","city","state"]
-    num_cols = ["age","mileage_num"]
+    # FIX: Removed "make_model" from cat_cols so it isn't duplicated bypassing TopKEncoder
+    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state"]
+    num_cols = ["age", "mileage_num"]
 
     preprocessor = ColumnTransformer([
         ("make_model", Pipeline([
@@ -128,38 +130,43 @@ def run_once(dry_run=False):
         )
     }
 
-    X = df[cat_cols + num_cols]
+    X = df[["make_model"] + cat_cols + num_cols]
     y = df["price_num"]
 
     X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
-
-    base_path = f"{OUTPUT_PREFIX}/{pd.Timestamp.utcnow().strftime('%Y%m%d%H')}"
-
+    
+    # FIX: Removed leading slash so path joins correctly on GCS
+    base_path = f"{pd.Timestamp.utcnow().strftime('%Y%m%d%H')}"
     results = {}
 
     for name, model in models.items():
-
+        # FIX: Clone preprocessor so memory instances aren't mutually shared/overwritten
         pipe = Pipeline([
-            ("preprocessor", preprocessor),
+            ("preprocessor", clone(preprocessor)),
             ("clf", model)
         ])
 
         pipe.fit(X_tr, y_tr)
 
+        # ---------------- PREDICTIONS & METRICS ----------------
+        preds = pipe.predict(X_val)
+        
+        # FIX: Cast metric to native python float to prevent JSON serialization 500 error
+        mae = float(mean_absolute_error(y_val, preds))
+        results[name] = mae
+
         # ---------------- FEATURE IMPORTANCE ----------------
-        # ---------------- FEATURE IMPORTANCE (FIXED) ----------------
         clf = pipe.named_steps["clf"]
 
         # unwrap TransformedTargetRegressor safely
         if hasattr(clf, "regressor_"):
-            model = clf.regressor_
+            inner_model = clf.regressor_
         else:
-            model = clf
+            inner_model = clf
 
-        if hasattr(model, "feature_importances_"):
-
+        if hasattr(inner_model, "feature_importances_"):
             feat_names = get_feature_names(pipe.named_steps["preprocessor"])
-            importances = model.feature_importances_
+            importances = inner_model.feature_importances_
 
             imp_df = pd.DataFrame({
                 "feature": feat_names,
@@ -171,104 +178,94 @@ def run_once(dry_run=False):
             )["importance"].sum().sort_values(ascending=False)
 
             top_feats = agg.head(3).index.tolist()
-
-            logging.info(f"{name} TOP FEATURES: {top_feats}")
-
-        else:
-            logging.warning(f"{name} has no feature_importances_")
+            logging.info(f"[{}] TOP FEATURES: {}")
 
             # ---------------- PDP ----------------
-            # ---------------- PDP FIXED FOR XGB ----------------
+            # FIX: Properly indented to execute when importances exist
             pre = pipe.named_steps["preprocessor"]
-            clf = pipe.named_steps["clf"]
-            model = clf.regressor_ if hasattr(clf, "regressor_") else clf
-
             X_val_trans = pre.transform(X_val)
+            
+            # FIX: PDP does not support Sparse Matrices. Cast to dense if necessary.
+            if scipy.sparse.issparse(X_val_trans):
+                X_val_trans = X_val_trans.toarray()
 
-            feat_names = get_feature_names(pre)
-
-            # use encoded feature indices from importance ranking
             top_encoded = imp_df["feature"].head(3).tolist()
 
             valid_idx = []
             valid_names = []
-
             for f in top_encoded:
                 if f in feat_names:
                     valid_idx.append(feat_names.index(f))
                     valid_names.append(f)
 
-            logging.info(f"PDP encoded features: {valid_names}")
+            logging.info(f"[{}] PDP encoded features: {}")
 
             for idx, name_ in zip(valid_idx, valid_names):
-
                 try:
                     plt.figure()
-
                     PartialDependenceDisplay.from_estimator(
-                        model,                # raw XGB model (IMPORTANT)
-                        X_val_trans,         # encoded matrix
+                        inner_model,       # raw unwrapped model
+                        X_val_trans,       # dense encoded matrix
                         features=[idx],
                         kind="average"
                     )
 
-                    safe = name_.replace("/", "_").replace(" ", "_")
-                    path = f"/tmp/{name}_pdp_{safe}.png"
+                    safe_feat = name_.replace("/", "_").replace(" ", "_")
+                    
+                    # FIX: Inject variables into f-strings
+                    path = f"/tmp/{}_pdp_{safe_feat}.png"
 
                     plt.savefig(path, bbox_inches="tight")
                     plt.close()
 
                     if not dry_run:
-                        upload_file(client, path, f"{base_path}/plots/{name}_pdp_{safe}.png")
+                        gcs_pdp_path = f"{}/{}/plots/{}_pdp_{safe_feat}.png"
+                        upload_file(client, path, gcs_pdp_path)
 
-                    logging.info(f"PDP saved: {name_}")
+                    logging.info(f"[{}] PDP saved: {path}")
 
                 except Exception as e:
-                    logging.warning(f"PDP failed {name} {name_}: {e}")
-
-        # ---------------- METRICS ----------------
-        preds = pipe.predict(X_val)
-        mae = mean_absolute_error(y_val, preds)
-        results[name] = mae
+                    logging.warning(f"[{}] PDP failed for '{}': {}")
+                    plt.close()
+        else:
+            logging.warning(f"[{}] has no feature_importances_")
 
         # ---------------- SAVE MODEL ----------------
-        local_model = f"/tmp/{name}.joblib"
+        local_model = f"/tmp/{}.joblib"
         joblib.dump(pipe, local_model)
-
-        logging.info(f"Saved model locally: {local_model}")
+        logging.info(f"[{}] Saved model locally: {}")
 
         if not dry_run:
-            upload_file(
-                client,
-                local_model,
-                f"{base_path}/models/{name}.joblib"
-            )
-            logging.info(f"Uploaded model to GCS: {name}")
+            gcs_model_path = f"{}/{}/models/{}.joblib"
+            upload_file(client, local_model, gcs_model_path)
+            logging.info(f"[{}] Uploaded model to GCS: {gcs_model_path}")
 
-        # ---------------- PREDICTIONS ----------------
-        preds = pipe.predict(X_val)
-
+        # ---------------- SAVE PREDICTIONS ----------------
+        # FIX: Removed redundant 2nd `preds = pipe.predict(X_val)` that was here
         out = X_val.copy()
         out["actual"] = y_val
         out["pred"] = preds
 
-        local_csv = f"/tmp/preds_{name}.csv"
+        local_csv = f"/tmp/{}_preds.csv"
         out.to_csv(local_csv, index=False)
-
-        logging.info(f"Saved preds locally: {local_csv}")
+        logging.info(f"[{}] Saved preds locally: {}")
 
         if not dry_run:
-            upload_file(
-                client,
-                local_csv,
-                f"{base_path}/preds/{name}_preds.csv"
-            )
-            logging.info(f"Uploaded preds to GCS: {name}")
+            gcs_csv_path = f"{}/{}/preds/{}_preds.csv"
+            upload_file(client, local_csv, gcs_csv_path)
+            logging.info(f"[{}] Uploaded preds to GCS: {gcs_csv_path}")
+
     return {"status": "ok", "mae": results}
 
 
 def train_dt_http(request):
     try:
-        return (json.dumps(run_once()), 200)
+        # FIX: Provide correct content-type header for JSON response
+        return (json.dumps(run_once()), 200, {'Content-Type': 'application/json'})
     except Exception as e:
-        return (json.dumps({"error": str(e)}), 500)
+        # Added traceback for better debug visibility if it crashes in the cloud
+        return (
+            json.dumps({"error": str(e), "trace": traceback.format_exc()}), 
+            500, 
+            {'Content-Type': 'application/json'}
+        )
