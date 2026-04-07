@@ -107,7 +107,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
-
+    TIMEZONE = "America/New_York"
     # --- Parse timestamps and choose local-day split ---
     dt = pd.to_datetime(df["scraped_at"], errors="coerce", utc=True)
     df["scraped_at_dt_utc"] = dt
@@ -151,9 +151,9 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     
 
     target = "price_num"
-    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state", "make_model", "zipcode"]
+    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
     num_cols = ["age", "mileage_num"]
-    feats = cat_cols + num_cols
+    feats = cat_cols + num_cols + ["make_model"]
     param_grids = {
         "dt": {
             "clf__max_depth": [5, 10, 15, 20, None],
@@ -203,7 +203,8 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     X = train_df[feats]
     y = train_df[target]
 
-    X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
+    X_hold = holdout_df[feats]
+    y_hold = holdout_df[target]
     
     base_path = pd.Timestamp.now(tz="UTC").strftime('%Y%m%d%H')
     results = {}
@@ -227,29 +228,26 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             random_state=42
         )
 
-        search.fit(X, y)  # ⚠️ use FULL training data (not split)
+        search.fit(X, y)  
 
         best_pipe = search.best_estimator_
 
         logging.info(f"[{name}] Best params: {search.best_params_}")
         
-        # validation (optional)
-        val_preds = best_pipe.predict(X_val)
-        val_mae = mean_absolute_error(y_val, val_preds)
+        # Cross-validation MAE (replaces val_mae)
+        cv_mae = -search.best_score_
 
-        # ✅ HOLDOUT predictions (REAL evaluation)
-        X_hold = holdout_df[feats]
-        y_hold = holdout_df[target]
-
+        # 2. HOLDOUT predictions (REAL unseen evaluation)
         hold_preds = best_pipe.predict(X_hold)
-        hold_mae = mean_absolute_error(y_hold, hold_preds)
+        hold_mae = float(mean_absolute_error(y_hold, hold_preds))
 
         results[name] = {
-            "val_mae": float(val_mae),
-            "holdout_mae": float(hold_mae)
-}
+            "cv_mae": float(cv_mae),
+            "holdout_mae": hold_mae
+        }
 
-    # ---------------- SAVE MODEL ----------------
+
+        # ---------------- SAVE MODEL ----------------
         # FIX: Added name
         local_model = f"/tmp/{name}.joblib"
         joblib.dump(best_pipe, local_model)
