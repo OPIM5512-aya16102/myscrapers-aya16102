@@ -1,0 +1,104 @@
+feature,importance_mean,importance_std
+make_model_BMW_X3,0.0,0.0
+make_model_CHEVROLET_COBALT,0.0,0.0
+make_model_Cadillac_ATS Sedan,0.0,0.0
+make_model_Cadillac_XTS,0.0,0.0
+make_model_Dodge_Neon,0.0,0.0
+make_model_Ford_F-150,0.0,0.0
+make_model_Ford_F-350,0.0,0.0
+make_model_Nissan_Rogue,0.0,0.0
+make_model_Subaru_Crosstrek,0.0,0.0
+make_model_Subaru_Forester,0.0,0.0
+make_model_Subaru_Outback,0.0,0.0
+make_model_Toyota_Camry,0.0,0.0
+make_model_Volkswagen_Jetta Sedan,0.0,0.0
+make_model_other,1.4580645161291614,0.7290322580645806
+make_model_toyota_camry,0.0,0.0
+make_model_volkswagen_tiguan,0.0,0.0
+color_Silver,0.0,0.0
+color_Tan,0.0,0.0
+color_beige,0.0,0.0
+color_black,554.7225806451612,318.5064556150634
+color_blue,-7.883870967741768,39.62052621829715
+color_brown,0.0,0.0
+color_burgundy,0.0,0.0
+color_cream,0.0,0.0
+color_custom,0.0,0.0
+color_gold,0.0,0.0
+color_gray,291.42258064516125,100.50437495978056
+color_green,-185.48387096774195,0.0
+color_grey,-15.96774193548372,4.981756519832358
+color_maroon,0.0,0.0
+color_maroon/silver,0.0,0.0
+color_red,168.34838709677442,91.75003230909553
+color_silver,-88.04838709677423,3.160631926171864
+color_white,-38.064516129032015,17.057166537293195
+color_yellow,0.0,0.0
+condition_excellent,75.69032258064536,78.7701522040666
+condition_fair,120.32580645161315,35.95846893338612
+condition_good,120.177419354839,163.69873950429977
+condition_like_new,400.64516129032256,15.013001649316411
+condition_new,0.0,0.0
+condition_salvage,0.0,0.0
+transmission_automatic,0.04838709677433144,0.18104793806973662
+transmission_manual,743.2580645161288,163.9354838709678
+fuel_CNG,0.0,0.0
+fuel_diesel,6.129032258064581,17.680244652961026
+fuel_electric,0.0,0.0
+fuel_gas,0.0,0.0
+fuel_gasoline,0.0,0.0
+fuel_hybrid,0.0,0.0
+fuel_natural gas,0.0,0.0
+city_Berlin,0.0,0.0
+city_Bethany,0.0,0.0
+city_Branford,-0.5225806451610879,24.208656787924994
+city_Bridgeport,314.1419354838712,95.44160921752739
+city_Bronx,258.32258064516157,97.45161290322558
+city_Cheshire,0.0,0.0
+city_Danbury,0.0,0.0
+city_Deep River,0.0,0.0
+city_Derby,0.0,0.0
+city_East Granby,1.5580645161292523,15.795258051043676
+city_East Haven,0.0,0.0
+city_Ellington,0.0,0.0
+city_Fairfield,0.0,0.0
+city_Guilford,0.0,0.0
+city_Hamden,0.0,0.0
+city_Hudson,0.0,0.0
+city_Killingworth,0.0,0.0
+city_Lake Crystal,0.0,0.0
+city_Madison,0.0,0.0
+city_Meriden,-25.80645161290322,31.606319261718422
+city_Middlebury,0.0,0.0
+city_Milford,243.54838709677415,0.0
+city_Nashua,0.0,0.0
+city_Naugatuck,0.0,0.0
+city_New Haven,4.29032258064517,8.580645161290338
+city_New Milford,0.0,0.0
+city_Newtown,0.0,0.0
+city_North Branford,0.0,0.0
+city_North Haven,236.92258064516145,70.95656979509627
+city_Norwalk,0.0,0.0
+city_Oakville,0.0,0.0
+city_Old Saybrook,0.0,0.0
+city_Orange,0.0,0.0
+city_Patterson,0.0,0.0
+city_Poughkeepsie,0.0,0.0
+city_Shelton,119.90322580645179,85.50537465383698
+city_Southbury,0.0,0.0
+city_Stamford,-1.290322580645079,0.6451612903225395
+city_Stratford,56.45161290322585,112.9032258064517
+city_Trumbull,0.0,0.0
+city_Upper Saddle River,0.0,0.0
+city_Wallingford,11.48387096774195,0.0
+city_Waterbury,0.0,0.0
+city_West Hartford,0.0,0.0
+city_West Haven,134.21612903225804,27.832447245382742
+city_Wolcott,0.0,0.0
+state_CT,0.0,0.0
+state_MN,0.0,0.0
+state_NH,0.0,0.0
+state_NJ,0.0,0.0
+state_NY,0.0,0.0
+age,1851.6225806451614,527.4136412435906
+mileage_num,2411.174193548387,717.7808945859971
