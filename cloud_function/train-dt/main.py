@@ -103,7 +103,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     client = storage.Client(project=PROJECT_ID)
     df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
 
-    required = {"scraped_at", "post_id" "price", "make", "model", "year", "mileage","transmission","color","fuel","city","state","zipcode"}
+    required = {"scraped_at", "post_id" , "price", "make", "model", "year", "mileage","transmission","color","fuel","city","state","zipcode"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
