@@ -151,6 +151,36 @@ def run_once(dry_run=False):
         mae = float(mean_absolute_error(y_val, preds))
         results[name] = mae
 
+    # ---------------- SAVE MODEL ----------------
+        # FIX: Added name
+        local_model = f"/tmp/{name}.joblib"
+        joblib.dump(pipe, local_model)
+        logging.info(f"[{name}] Saved model locally: {local_model}")
+        # ---------------- SAVE PREDICTIONS ----------------
+        out = X_val.copy()
+        out["actual"] = y_val
+        out["pred"] = preds
+
+        # FIX: Added name
+        local_csv = f"/tmp/{name}_preds.csv"
+        out.to_csv(local_csv, index=False)
+        logging.info(f"[{name}] Saved preds locally: {local_csv}")
+        
+        if not dry_run:
+            # FIX: Correctly built GCS paths
+            gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/models/{name}.joblib"
+            upload_file(client, local_model, gcs_model_path)
+            logging.info(f"[{name}] Uploaded model to GCS: {gcs_model_path}")
+
+        if not dry_run:
+            # FIX: Correctly built GCS paths
+            gcs_csv_path = f"{OUTPUT_PREFIX}/{base_path}/preds/{name}_preds.csv"
+            upload_file(client, local_csv, gcs_csv_path)
+            logging.info(f"[{name}] Uploaded preds to GCS: {gcs_csv_path}")
+
+        
+
+        
         # ---------------- PERMUTATION IMPORTANCE ----------------
         clf = pipe.named_steps["clf"]
 
@@ -171,7 +201,7 @@ def run_once(dry_run=False):
             feat_names = get_feature_names(pre)
 
             perm = permutation_importance(
-                cls,
+                clf,
                 X_val_trans,
                 y_val,
                 n_repeats=5,
@@ -238,23 +268,12 @@ def run_once(dry_run=False):
             upload_file(client, fi_local_path, fi_gcs_path)
             logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
 
-        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-        pre = pipe.named_steps["preprocessor"]
-        X_val_trans = pre.transform(X_val)
-            
-        if scipy.sparse.issparse(X_val_trans):
-            X_val_trans = X_val_trans.toarray()
-
-        # We use the top 3 encoded exact features (e.g. 'age', 'make_model_Toyota_Camry')
-        
-        # Ensure we only use permutation importance results
-        if not imp_df.empty:
-            top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
-        else:
-            top_encoded = []
+       # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
+        # (X_val_trans is already computed above, no need to recalculate it)
+        top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
 
         if len(top_encoded) == 0:
-            logging.warning(f"[{name}] No features available for PDP (permutation importance failed)")
+            logging.warning(f"[{name}] No features available for PDP")
             continue
         
         valid_idx = []
@@ -297,37 +316,8 @@ def run_once(dry_run=False):
                 logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
                 plt.close('all')
     
-
+        return {"status": "ok", "mae": results}
             
-        # ---------------- SAVE MODEL ----------------
-        # FIX: Added name
-        local_model = f"/tmp/{name}.joblib"
-        joblib.dump(pipe, local_model)
-        logging.info(f"[{name}] Saved model locally: {local_model}")
-
-        if not dry_run:
-            # FIX: Correctly built GCS paths
-            gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/models/{name}.joblib"
-            upload_file(client, local_model, gcs_model_path)
-            logging.info(f"[{name}] Uploaded model to GCS: {gcs_model_path}")
-
-        # ---------------- SAVE PREDICTIONS ----------------
-        out = X_val.copy()
-        out["actual"] = y_val
-        out["pred"] = preds
-
-        # FIX: Added name
-        local_csv = f"/tmp/{name}_preds.csv"
-        out.to_csv(local_csv, index=False)
-        logging.info(f"[{name}] Saved preds locally: {local_csv}")
-
-        if not dry_run:
-            # FIX: Correctly built GCS paths
-            gcs_csv_path = f"{OUTPUT_PREFIX}/{base_path}/preds/{name}_preds.csv"
-            upload_file(client, local_csv, gcs_csv_path)
-            logging.info(f"[{name}] Uploaded preds to GCS: {gcs_csv_path}")
-
-    return {"status": "ok", "mae": results}
 
 
 def train_dt_http(request):
