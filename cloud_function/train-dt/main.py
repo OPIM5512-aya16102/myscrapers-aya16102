@@ -130,8 +130,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
 
     # ---------------------------------------------------------
-    # 2. "FIRST-SEEN" DEDUPLICATION TO PREVENT LEAKAGE
-    # ---------------------------------------------------------
     # Sort ascending so the OLDEST (first) scrape of a post_id is at the top
     df = df.sort_values("scraped_at_dt_utc", ascending=True)
 
@@ -409,7 +407,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                 fig, ax = plt.subplots(figsize=(8, 6))
                 
                 PartialDependenceDisplay.from_estimator(
-                    inner_model,       
+                    best_pipe,       
                     X_pdp_bg,       
                     features=[idx],
                     feature_names=feat_names, # Maps indices back to real names for axes labels
