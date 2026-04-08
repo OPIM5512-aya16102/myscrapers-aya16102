@@ -391,7 +391,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         # FIX 1: Generate PDP using a sample of historical TRAINING data, not the tiny holdout data
         # This ensures rare cars/features actually exist in the data we plot
-        X_train_trans = pre.transform(X_hold_trans)
+        X_train_trans = pre.transform(X)
         if scipy.sparse.issparse(X_train_trans):
             X_train_trans = X_train_trans.toarray()
             
