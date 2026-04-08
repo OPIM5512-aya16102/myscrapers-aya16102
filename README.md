@@ -1,9 +1,5 @@
-📊 Used Car Price Prediction & Backtesting Pipeline
+🚗 Craigslist Car Price Prediction using GenAI + Machine Learning
 
-This project builds and evaluates machine learning models to predict used car prices using structured listing data. It includes a full end-to-end pipeline for data cleaning, feature engineering, time-based backtesting, and model evaluation.
+I started this project with starter code which allowed me to get setup on Google Cloud Platform and collect data. 
 
-The system trains multiple regression models (Decision Tree, Random Forest, and XGBoost), applies log-transformed targets for stability, and evaluates performance using rolling time-based splits to simulate real-world prediction scenarios.
-
-In addition to standard metrics (MAE, RMSE, R², MAPE, bias), the pipeline generates model interpretability outputs including permutation feature importance and partial dependence plots (PDPs). All artifacts (models, predictions, and diagnostics) are saved locally and uploaded to Google Cloud Storage for tracking and monitoring over time.
-
-This setup is designed for production-style experimentation, enabling continuous evaluation of model performance as new data becomes available.
+In this repository you will find the cloud functions and workflow used to deploy the models. 
