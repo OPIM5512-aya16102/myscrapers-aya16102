@@ -1,3 +1,4 @@
+
 import os, io, json, logging, traceback
 import numpy as np
 import pandas as pd
@@ -18,7 +19,7 @@ import matplotlib.pyplot as plt
 import joblib
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import RandomizedSearchCV, KFold
-from sklearn.model_selection import TimeSeriesSplit
+from matplotlib.ticker import FuncFormatter
 
 # ---------------- ENV ----------------
 PROJECT_ID = os.getenv("PROJECT_ID", "")
@@ -100,8 +101,6 @@ def _clean_numeric(s: pd.Series) -> pd.Series:
     s = s.astype(str).str.replace(r"[^\d.]+", "", regex=True).str.strip()
     return pd.to_numeric(s, errors="coerce")
 
-
-
 def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int = 10):
     client = storage.Client(project=PROJECT_ID)
     df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
@@ -132,10 +131,14 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
 
     # ---------------------------------------------------------
+    # 2. "FIRST-SEEN" DEDUPLICATION TO PREVENT LEAKAGE
+    # ---------------------------------------------------------
     # Sort ascending so the OLDEST (first) scrape of a post_id is at the top
     df = df.sort_values("scraped_at_dt_utc", ascending=True)
 
+    # Drop duplicates, keeping ONLY the first time we ever saw this post_id
     orig_count = len(df)
+    df = df.drop_duplicates(subset=["post_id"], keep="first").copy()
     
     logging.info(f"Deduplication: Kept {len(df)} unique cars out of {orig_count} total scrapes based on post_id.")
 
@@ -154,28 +157,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     
     # Test ONLY on brand new post_ids that hit the market TODAY
     holdout_df = df[df["date_local"] == today_local].copy()
-
-
-    unique_dates = sorted(d for d in df["date_local"].dropna().unique())
-
-    if len(unique_dates) < 3:
-        return {
-            "status": "noop",
-            "reason": "need at least 3 distinct dates for 2-day holdout",
-            "dates": [str(d) for d in unique_dates]
-        }
-
-    # ✅ Last 2 days = holdout
-    holdout_dates = unique_dates[-2:]
-
-    # ✅ Everything before = training
-    train_df   = df[df["date_local"] < holdout_dates[0]].copy()
-    holdout_df = df[df["date_local"].isin(holdout_dates)].copy()
-
-    logging.info(f"Train date range: < {holdout_dates[0]}")
-    logging.info(f"Holdout dates: {holdout_dates}")
-    logging.info(f"Train rows: {len(train_df)}")
-    logging.info(f"Holdout rows: {len(holdout_df)}")
 
     logging.info("Historical Train Rows: %d", len(train_df))
     logging.info("Brand New Holdout Rows (%s): %d", today_local, len(holdout_df))
@@ -221,24 +202,25 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     ])
 
     models = {
-    "dt": DecisionTreeRegressor(),
+        "dt": DecisionTreeRegressor(),
+        "rf": TransformedTargetRegressor(
+            regressor=RandomForestRegressor(),
+            func=log10_transform,
+            inverse_func=inverse_log10
+        ),
+        "xgb": TransformedTargetRegressor(
+            regressor=XGBRegressor(),
+            func=log10_transform,
+            inverse_func=inverse_log10
+        )
+    }
 
-    "rf": RandomForestRegressor(),
-
-    "xgb": XGBRegressor(
-        objective="reg:squarederror",
-        eval_metric="rmse"
-    )
-}
-
-    train_df = train_df.sort_values("scraped_at_dt_utc")
     X = train_df[feats]
     y = train_df[target]
 
     X_hold = holdout_df[feats]
     y_hold = holdout_df[target]
-    y_train_model = np.log10(train_df[target])
-    y_hold_model = np.log10(y_hold)
+    
     base_path = pd.Timestamp.now(tz="UTC").strftime('%Y%m%d%H')
     results = {}
 
@@ -248,7 +230,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             ("clf", model)
         ])
 
-        cv = TimeSeriesSplit(n_splits=3)
+        cv = KFold(n_splits=3, shuffle=True, random_state=42)
 
         search = RandomizedSearchCV(
             pipe,
@@ -261,12 +243,9 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             random_state=42
         )
 
-        search.fit(X, y_train_model)  
-        best_pipe = search.best_estimator_
-        pre = best_pipe.named_steps["preprocessor"]
-        feat_names = get_feature_names(pre)
+        search.fit(X, y)  
 
-        
+        best_pipe = search.best_estimator_
 
         logging.info(f"[{name}] Best params: {search.best_params_}")
         
@@ -275,22 +254,11 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         # 2. HOLDOUT predictions (REAL unseen evaluation)
         hold_preds = best_pipe.predict(X_hold)
-        preds = 10 ** hold_preds
-        y_hold_real = y_hold
-        mae = mean_absolute_error(y_hold_real, preds)
-        rmse = np.sqrt(np.mean((y_hold_real - preds) ** 2))
-        r2 = 1 - np.sum((y_hold_real - preds)**2) / np.sum((y_hold_real - y_hold_real.mean())**2)
-        bias = np.mean(preds - y_hold_real)
-
-        mask = y_hold_real != 0
-        mape = np.mean(np.abs((y_hold_real[mask] - preds[mask]) / y_hold_real[mask])) * 100 if mask.any() else np.nan
+        hold_mae = float(mean_absolute_error(y_hold, hold_preds))
 
         results[name] = {
             "cv_mae": float(cv_mae),
-            "mae": float(mae),
-            "rmse": float(rmse),
-            "r2": float(r2),
-            "bias": float(bias),
+            "holdout_mae": hold_mae
         }
 
 
@@ -302,7 +270,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # ---------------- SAVE PREDICTIONS ----------------
         out = X_hold.copy()
         out["actual"] = y_hold
-        out["pred"] = preds
+        out["pred"] = hold_preds
         local_csv = f"/tmp/{name}_preds.csv"
         out.to_csv(local_csv, index=False)
         logging.info(f"[{name}] Saved preds locally: {local_csv}")
@@ -323,30 +291,43 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         
         # ---------------- PERMUTATION IMPORTANCE ----------------
+        clf = best_pipe.named_steps["clf"]
 
+        # unwrap TransformedTargetRegressor safely
+        if hasattr(clf, "regressor_"):
+            inner_model = clf.regressor_
+        else:
+            inner_model = clf
+
+        
         try:
-
-            perm = permutation_importance(
-            best_pipe,
-            X_hold,
-            y_hold_model,   # IMPORTANT: match training space
-            n_repeats=5,
-            random_state=42,
-            scoring="neg_mean_absolute_error",
-            n_jobs=-1
-        )
             pre = best_pipe.named_steps["preprocessor"]
+            X_hold_trans = pre.transform(X_hold)
+
+            if scipy.sparse.issparse(X_hold_trans):
+                X_hold_trans = X_hold_trans.toarray()
+
             feat_names = get_feature_names(pre)
 
+            perm = permutation_importance(
+                clf,
+                X_hold_trans,
+                y_hold,
+                n_repeats=5,
+                random_state=42,
+                scoring="neg_mean_absolute_error",
+                n_jobs=-1
+            )
+
             imp_df = pd.DataFrame({
-                "feature": feat_names[:len(perm.importances_mean)],
+                "feature": feat_names,
                 "importance": perm.importances_mean,
                 "std": perm.importances_std
             }).sort_values("importance", ascending=False)
 
             # ✅ SAVE permutation importance errors
             err_df = pd.DataFrame({
-                "feature": feat_names[:len(perm.importances_mean)],
+                "feature": feat_names,
                 "importance_mean": perm.importances_mean,
                 "importance_std": perm.importances_std
             })
@@ -369,14 +350,12 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             continue
             
         agg = imp_df.groupby(
-            imp_df["feature"]
+            imp_df["feature"].str.split("_").str[0]
         )["importance"].sum().sort_values(ascending=False)
 
         top_feats = agg.head(3).index.tolist()
         # FIX: Inserted 'name' and 'top_feats'
         logging.info(f"[{name}] TOP AGGREGATED FEATURES: {top_feats}")
-
-        
 
         # ---------------- PLOT 1: FEATURE IMPORTANCE ----------------
         plt.figure(figsize=(10, 6))
@@ -398,337 +377,80 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             upload_file(client, fi_local_path, fi_gcs_path)
             logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
 
-       
-       
        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-        top_features = imp_df.head(3)["feature"].tolist()
+        
+        top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
 
-        X_pdp = X.sample(min(2000, len(X)), random_state=42)
+        if len(top_encoded) == 0:
+            logging.warning(f"[{name}] No features available for PDP")
+            continue
+        
+        valid_idx = []
+        valid_names = []
+        for f in top_encoded:
+            if f in feat_names:
+                valid_idx.append(feat_names.index(f))
+                valid_names.append(f)
 
-        for feature in top_features:
+        logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
+
+        # FIX 1: Generate PDP using a sample of historical TRAINING data, not the tiny holdout data
+        # This ensures rare cars/features actually exist in the data we plot
+        X_train_trans = pre.transform(X)
+        if scipy.sparse.issparse(X_train_trans):
+            X_train_trans = X_train_trans.toarray()
+            
+        np.random.seed(42)
+        sample_size = min(2000, X_train_trans.shape[0]) # Cap at 2000 rows for fast processing
+        idx_sample = np.random.choice(X_train_trans.shape[0], sample_size, replace=False)
+        X_pdp_bg = X_train_trans[idx_sample]
+
+
+        for idx, name_ in zip(valid_idx, valid_names):
             try:
                 # Provide an explicit axes to safely render into
                 fig, ax = plt.subplots(figsize=(8, 6))
                 
                 PartialDependenceDisplay.from_estimator(
-                best_pipe,
-                X_pdp,
-                features=[feature],
-                feature_names=get_feature_names(best_pipe.named_steps["preprocessor"]),
-                ax=ax)
-        
+                    inner_model,       
+                    X_pdp_bg,       
+                    features=[idx],
+                    feature_names=feat_names, # Maps indices back to real names for axes labels
+                    kind="average",
+                    ax=ax
+                )
 
-                safe_feat = feature.replace("/", "_").replace(" ", "_")
+                # FIX 2: Clean up the X-Axis for Binary (One-Hot Encoded) Categorical Features
+                unique_vals = np.unique(X_pdp_bg[:, idx])
+                if len(unique_vals) <= 2 and set(unique_vals).issubset({0.0, 1.0, 0, 1}):
+                    ax.set_xticks([0, 1])
+                    ax.set_xticklabels(["False (Doesn't Have)", "True (Has)"])
+                    ax.set_xlim(-0.5, 1.5)
 
+                # FIX 3: Convert the Log10 Y-Axis back into Actual Dollar Amounts
+                formatter = FuncFormatter(lambda y, pos: f"${int(10**y):,}")
+                ax.yaxis.set_major_formatter(formatter)
+
+                safe_feat = name_.replace("/", "_").replace(" ", "_")
                 path = f"/tmp/{name}_pdp_{safe_feat}.png"
 
-                plt.title(f"PDP: {feature} ({name.upper()})")
+                plt.title(f"PDP for {safe_feat} ({name.upper()})")
                 plt.tight_layout()
-                plt.savefig(path)
+                plt.savefig(path, bbox_inches="tight")
                 plt.close(fig)
 
                 if not dry_run:
                     gcs_pdp_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_pdp_{safe_feat}.png"
                     upload_file(client, path, gcs_pdp_path)
+                    logging.info(f"[{safe_feat}] PDP uploaded to GCS: {gcs_pdp_path}")
 
             except Exception as e:
-                logging.warning(f"[{name}] PDP failed for {feature}: {e}")
+                logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
                 plt.close('all')
     
     return {"status": "ok", "mae": results}
             
-#def run_backtest(dry_run: bool = False):
-    client = storage.Client(project=PROJECT_ID)
-    df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
 
-    TIMEZONE = "America/New_York"
-
-    # ---------------- CLEAN ----------------
-    df["scraped_at"] = pd.to_datetime(df["scraped_at"], utc=True, errors="coerce")
-    df["date_local"] = df["scraped_at"].dt.tz_convert(TIMEZONE).dt.date
-
-    df["zipcode"] = df["zipcode"].astype(str).str.zfill(5)
-    df["make_model"] = df["make"] + "_" + df["model"]
-
-    current_year = pd.Timestamp.now(tz=TIMEZONE).year
-    df["age"] = current_year - df["year"]
-
-    df["price_num"] = clean_numeric(df["price"])
-    df["mileage_num"] = clean_numeric(df["mileage"])
-
-    df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
-
-    # -------- DEDUP --------
-    df = df.sort_values("scraped_at")
-    df = df.drop_duplicates("post_id", keep="first")
-
-    target = "price_num"
-    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
-    num_cols = ["age", "mileage_num"]
-    feats = cat_cols + num_cols + ["make_model"]
-    param_grids = {
-        "dt": {
-            "clf__max_depth": [5, 10, 15, 20, None],
-            "clf__min_samples_leaf": [1, 5, 10, 20]
-        },
-        "rf": {
-            "clf__regressor__n_estimators": [100, 200],
-            "clf__regressor__max_depth": [10, 20, None],
-            "clf__regressor__min_samples_leaf": [1, 5, 10]
-        },
-        "xgb": {
-            "clf__regressor__n_estimators": [100, 200],
-            "clf__regressor__max_depth": [3, 6, 10],
-            "clf__regressor__learning_rate": [0.05, 0.1],
-            "clf__regressor__subsample": [0.8, 1.0]
-        }
-    }
-
-    preprocessor = ColumnTransformer([
-        ("make_model", Pipeline([
-            ("topk", TopKEncoder(15)),
-            ("oh", OneHotEncoder(handle_unknown="ignore"))
-        ]), ["make_model"]),
-
-        ("cat", Pipeline([
-            ("imp", SimpleImputer(strategy="most_frequent")),
-            ("oh", OneHotEncoder(handle_unknown="ignore"))
-        ]), cat_cols),
-
-        ("num", SimpleImputer(strategy="median"), num_cols)
-    ])
-
-    models = {
-    "dt": DecisionTreeRegressor(),
-
-    "rf": RandomForestRegressor(),
-
-    "xgb": XGBRegressor(
-        objective="reg:squarederror",
-        eval_metric="rmse"
-    )
-}
-
-
-    all_dates = sorted(df["date_local"].dropna().unique())
-    start_date = pd.to_datetime("2026-04-01").date()
-    backtest_dates = [d for d in all_dates if d >= start_date]
-
-    results = []
-
-    for current_day in backtest_dates:
-        logging.info(f"=== Backtesting for day: {current_day} ===")
-
-        train_df = df[df["date_local"] < current_day].copy()
-
-        holdout_df = df[
-            (df["date_local"] >= current_day) &
-            (df["date_local"] < current_day + pd.Timedelta(days=2))
-        ].copy()
-
-        if len(train_df) < 50 or len(holdout_df) < 10:
-            continue
-
-        X_hold = holdout_df[feats]
-        y_hold = holdout_df[target]
-        y_train_model = np.log10(train_df[target])
-        y_hold_model = np.log10(y_hold)
-        base_path = pd.Timestamp.now(tz="UTC").strftime('%Y%m%d%H')
-        results = {}
-        os.makedirs("/tmp/run", exist_ok=True)
-        for name, model in models.items():
-            pipe = Pipeline([
-                ("preprocessor", preprocessor),
-                ("clf", model)
-            ])
-
-            cv = TimeSeriesSplit(n_splits=3)
-
-            search = RandomizedSearchCV(
-                pipe,
-                param_distributions=param_grids[name],
-                n_iter=10,
-                scoring="neg_mean_absolute_error",
-                cv=cv,
-                verbose=1,
-                n_jobs=-1,
-                random_state=42
-            )
-
-            search.fit(train_df[feats], y_train_model)  
-            
-            feat_names = get_feature_names(pre)
-
-            best_pipe = search.best_estimator_
-            pre = best_pipe.named_steps["preprocessor"]
-            logging.info(f"[{name}] Best params: {search.best_params_}")
-            
-            # Cross-validation MAE (replaces val_mae)
-            cv_mae = -search.best_score_
-
-            # 2. HOLDOUT predictions (REAL unseen evaluation)
-            hold_preds = best_pipe.predict(X_hold)
-            preds = 10 ** hold_preds
-            y_hold_real = y_hold
-            mae = mean_absolute_error(y_hold_real, preds)
-            rmse = np.sqrt(np.mean((y_hold_real - preds) ** 2))
-            r2 = 1 - np.sum((y_hold_real - preds)**2) / np.sum((y_hold_real - y_hold_real.mean())**2)
-            bias = np.mean(preds - y_hold_real)
-
-            mask = y_hold_real != 0
-            mape = np.mean(np.abs((y_hold_real[mask] - preds[mask]) / y_hold_real[mask])) * 100 if mask.any() else np.nan
-
-            results[name] = {
-                "cv_mae": float(cv_mae),
-                "mae": float(mae),
-                "rmse": float(rmse),
-                "r2": float(r2),
-                "bias": float(bias),
-            }
-
-
-            # ---------------- SAVE MODEL ----------------
-            # FIX: Added name
-            local_model = f"/tmp/run/{name}.joblib"
-            joblib.dump(best_pipe, local_model)
-            logging.info(f"[{name}] Saved model locally: {local_model}")
-            # ---------------- SAVE PREDICTIONS ----------------
-            out = X_hold.copy()
-            out["actual"] = y_hold
-            out["pred"] = preds
-            local_csv = f"/tmp/{name}_preds.csv"
-            out.to_csv(local_csv, index=False)
-            logging.info(f"[{name}] Saved preds locally: {local_csv}")
-
-            if not dry_run:
-                # FIX: Correctly built GCS paths
-                gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/run/models/{name}.joblib"
-                upload_file(client, local_model, gcs_model_path)
-                logging.info(f"[{name}] Uploaded model to GCS: {gcs_model_path}")
-
-            if not dry_run:
-                # FIX: Correctly built GCS paths
-                gcs_csv_path = f"{OUTPUT_PREFIX}/{base_path}/run/preds/{name}_preds.csv"
-                upload_file(client, local_csv, gcs_csv_path)
-                logging.info(f"[{name}] Uploaded preds to GCS: {gcs_csv_path}")
-
-        
-
-        
-        # ---------------- PERMUTATION IMPORTANCE ----------------
-
-        try:
-
-            perm = permutation_importance(
-            best_pipe,
-            X_hold,
-            y_hold_model,   # IMPORTANT: match training space
-            n_repeats=5,
-            random_state=42,
-            scoring="neg_mean_absolute_error",
-            n_jobs=-1
-        )
-            pre = best_pipe.named_steps["preprocessor"]
-            feat_names = get_feature_names(pre)
-
-            imp_df = pd.DataFrame({
-                "feature": feat_names[:len(perm.importances_mean)],
-                "importance": perm.importances_mean,
-                "std": perm.importances_std
-            }).sort_values("importance", ascending=False)
-
-            # ✅ SAVE permutation importance errors
-            err_df = pd.DataFrame({
-                "feature": feat_names[:len(perm.importances_mean)],
-                "importance_mean": perm.importances_mean,
-                "importance_std": perm.importances_std
-            })
-
-            err_local = f"/tmp/run/{name}_perm_importance.csv"
-            err_df.to_csv(err_local, index=False)
-
-            if not dry_run:
-                gcs_err_path = f"{OUTPUT_PREFIX}/{base_path}/run/errors/{name}_perm_importance.csv"
-                upload_file(client, err_local, gcs_err_path)
-                logging.info(f"[{name}] Uploaded permutation importance errors: {gcs_err_path}")
-
-        except Exception as e:
-            logging.warning(f"[{name}] Permutation importance failed: {e}")
-            imp_df = pd.DataFrame({"feature": [], "importance": []})
-
-            # ✅ FIX: Moved all of this logic OUT of the except block!
-        if imp_df.empty:
-            logging.warning(f"[{name}] No features available for plotting. Skipping.")
-            continue
-            
-        agg = imp_df.groupby(
-            imp_df["feature"]
-        )["importance"].sum().sort_values(ascending=False)
-
-        top_feats = agg.head(3).index.tolist()
-        # FIX: Inserted 'name' and 'top_feats'
-        logging.info(f"[{name}] TOP AGGREGATED FEATURES: {top_feats}")
-
-        
-
-        # ---------------- PLOT 1: FEATURE IMPORTANCE ----------------
-        plt.figure(figsize=(10, 6))
-        top_15_imp = imp_df.head(15).copy()
-        # Sort ascending so the largest bar ends up at the very top of the horizontal chart
-        top_15_imp = top_15_imp.sort_values(by="importance", ascending=True)
-            
-        plt.barh(top_15_imp["feature"], top_15_imp["importance"], color="skyblue")
-        plt.title(f"Top 15 Feature Importances - {name.upper()}")
-        plt.xlabel("Importance Score")
-        plt.tight_layout()
-
-        fi_local_path = f"/tmp/run/{name}_feature_importance.png"
-        plt.savefig(fi_local_path)
-        plt.close()
-
-        if not dry_run:
-            fi_gcs_path = f"{OUTPUT_PREFIX}/{base_path}/run/{name}_feature_importance.png"
-            upload_file(client, fi_local_path, fi_gcs_path)
-            logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
-
-       
-       
-       # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-        top_features = imp_df.head(3)["feature"].tolist()
-
-        X_pdp = X.sample(min(2000, len(X)), random_state=42)
-
-        for feature in top_features:
-            try:
-                # Provide an explicit axes to safely render into
-                fig, ax = plt.subplots(figsize=(8, 6))
-                
-                PartialDependenceDisplay.from_estimator(
-                best_pipe,
-                X_pdp,
-                features=[feature],
-                feature_names=get_feature_names(best_pipe.named_steps["preprocessor"]),
-                ax=ax)
-        
-
-                safe_feat = feature.replace("/", "_").replace(" ", "_")
-
-                path = f"/tmp/run/{name}_pdp_{safe_feat}.png"
-
-                plt.title(f"PDP: {feature} ({name.upper()})")
-                plt.tight_layout()
-                plt.savefig(path)
-                plt.close(fig)
-
-                if not dry_run:
-                    gcs_pdp_path = f"{OUTPUT_PREFIX}/{base_path}/run/{name}_pdp_{safe_feat}.png"
-                    upload_file(client, path, gcs_pdp_path)
-
-            except Exception as e:
-                logging.warning(f"[{name}] PDP failed for {feature}: {e}")
-                plt.close('all')
-    
-    return {"status": "ok", "mae": results}
 
 def train_dt_http(request):
     try:
