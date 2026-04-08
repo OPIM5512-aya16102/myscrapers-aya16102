@@ -121,7 +121,7 @@ def run_backtest(dry_run: bool = False):
 
     df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
 
-    # -------- DEDUP (CRITICAL) --------
+    # -------- DEDUP --------
     df = df.sort_values("scraped_at")
     df = df.drop_duplicates("post_id", keep="first")
 
@@ -176,9 +176,7 @@ def run_backtest(dry_run: bool = False):
         }
     }
 
-    # ---------------- ROLLING BACKTEST ----------------
     all_dates = sorted(df["date_local"].dropna().unique())
-
     start_date = pd.to_datetime("2026-04-01").date()
     backtest_dates = [d for d in all_dates if d >= start_date]
 
@@ -189,7 +187,6 @@ def run_backtest(dry_run: bool = False):
 
         train_df = df[df["date_local"] < current_day].copy()
 
-        # HOLDOUT = LAST 2 DAYS
         holdout_df = df[
             (df["date_local"] >= current_day) &
             (df["date_local"] < current_day + pd.Timedelta(days=2))
@@ -205,6 +202,7 @@ def run_backtest(dry_run: bool = False):
         y_hold = holdout_df[target]
 
         for name, model in models.items():
+
             pipe = Pipeline([
                 ("preprocessor", clone(preprocessor)),
                 ("clf", model)
@@ -246,16 +244,90 @@ def run_backtest(dry_run: bool = False):
                 "bias": bias
             })
 
-            logging.info(f"[{name}] {current_day} | MAE={mae:.2f}")
+            # ---------------- SAVE PREDICTIONS ----------------
+            pred_df = X_hold.copy()
+            pred_df["actual"] = y_hold
+            pred_df["pred"] = preds
 
+            pred_path = f"/tmp/{name}_{current_day}_preds.csv"
+            pred_df.to_csv(pred_path, index=False)
+
+            if not dry_run:
+                upload_file(client, pred_path,
+                    f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_preds.csv")
+
+            # ---------------- PERMUTATION IMPORTANCE ----------------
+            perm = permutation_importance(
+                best_model,
+                X_hold,
+                y_hold,
+                n_repeats=5,
+                random_state=42,
+                scoring="neg_mean_absolute_error",
+                n_jobs=-1
+            )
+
+            imp_df = pd.DataFrame({
+                "feature": X_hold.columns,
+                "importance": perm.importances_mean,
+                "std": perm.importances_std
+            }).sort_values("importance", ascending=False)
+
+            imp_path = f"/tmp/{name}_{current_day}_perm.csv"
+            imp_df.to_csv(imp_path, index=False)
+
+            if not dry_run:
+                upload_file(client, imp_path,
+                    f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_perm.csv")
+
+            # ---------------- PDP (TOP 3 FEATURES) ----------------
+            top_features = imp_df.head(3)["feature"].tolist()
+
+            sample_size = min(2000, len(X_train))
+            X_pdp = X_train.sample(sample_size, random_state=42)
+
+            clf = best_model.named_steps["clf"]
+
+            for feature in top_features:
+                try:
+                    fig, ax = plt.subplots(figsize=(6, 4))
+
+                    PartialDependenceDisplay.from_estimator(
+                        best_model,
+                        X_pdp,
+                        features=[feature],
+                        ax=ax
+                    )
+
+                    # Fix log scaling
+                    if hasattr(clf, "regressor_"):
+                        ax.yaxis.set_major_formatter(
+                            FuncFormatter(lambda y, _: f"${int(10**y):,}")
+                        )
+
+                    plt.title(f"{name.upper()} PDP: {feature} ({current_day})")
+
+                    pdp_path = f"/tmp/{name}_{current_day}_pdp_{feature}.png"
+                    plt.tight_layout()
+                    plt.savefig(pdp_path)
+                    plt.close()
+
+                    if not dry_run:
+                        upload_file(client, pdp_path,
+                            f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_pdp_{feature}.png")
+
+                except Exception as e:
+                    logging.warning(f"PDP failed for {feature}: {e}")
+
+    # ---------------- SAVE METRICS ----------------
     df_results = pd.DataFrame(results)
 
-    # ---------------- SAVE ----------------
-    local_path = "/tmp/backtest_metrics.csv"
-    df_results.to_csv(local_path, index=False)
+    metrics_path = "/tmp/backtest_metrics.csv"
+    df_results.to_csv(metrics_path, index=False)
 
     if not dry_run:
-        upload_file(client, local_path, f"{OUTPUT_PREFIX}/backtest_metrics.csv")
+        upload_file(client, metrics_path,
+            f"{OUTPUT_PREFIX}/backtest_metrics.csv")
 
     return df_results
 
