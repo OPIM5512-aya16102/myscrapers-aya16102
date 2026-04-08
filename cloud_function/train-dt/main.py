@@ -249,7 +249,7 @@ def run_backtest(dry_run: bool = False):
             pred_df["actual"] = y_hold
             pred_df["pred"] = preds
 
-            pred_path = f"{OUTPUT_PREFIX}/{base_path}/tmp/{name}_{current_day}_preds.csv"
+            pred_path = f"{OUTPUT_PREFIX}/{base_path}/backtest/{name}_{current_day}_preds.csv"
             pred_df.to_csv(pred_path, index=False)
 
             if not dry_run:
@@ -450,18 +450,15 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     ])
 
     models = {
-        "dt": DecisionTreeRegressor(),
-        "rf": TransformedTargetRegressor(
-            regressor=RandomForestRegressor(),
-            func=log10_transform,
-            inverse_func=inverse_log10
-        ),
-        "xgb": TransformedTargetRegressor(
-            regressor=XGBRegressor(),
-            func=log10_transform,
-            inverse_func=inverse_log10
-        )
-    }
+    "dt": DecisionTreeRegressor(),
+
+    "rf": RandomForestRegressor(),
+
+    "xgb": XGBRegressor(
+        objective="reg:squarederror",
+        eval_metric="rmse"
+    )
+}
 
     train_df = train_df.sort_values("scraped_at_dt_utc")
     X = train_df[feats]
@@ -469,7 +466,8 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     X_hold = holdout_df[feats]
     y_hold = holdout_df[target]
-    
+    y_train_model = np.log10(y)
+    y_hold_model = np.log10(y_hold)
     base_path = pd.Timestamp.now(tz="UTC").strftime('%Y%m%d%H')
     results = {}
 
@@ -492,7 +490,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             random_state=42
         )
 
-        search.fit(X, y)  
+        search.fit(X, y_train_model)  
 
         best_pipe = search.best_estimator_
 
@@ -503,11 +501,22 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         # 2. HOLDOUT predictions (REAL unseen evaluation)
         hold_preds = best_pipe.predict(X_hold)
-        hold_mae = float(mean_absolute_error(y_hold, hold_preds))
+        preds = 10 ** hold_preds
+        y_hold_real = y_hold
+        mae = mean_absolute_error(y_hold_real, preds)
+        rmse = np.sqrt(np.mean((y_hold_real - preds) ** 2))
+        r2 = 1 - np.sum((y_hold_real - preds)**2) / np.sum((y_hold_real - y_hold_real.mean())**2)
+        bias = np.mean(preds - y_hold_real)
+
+        mask = y_hold_real != 0
+        mape = np.mean(np.abs((y_hold_real[mask] - preds[mask]) / y_hold_real[mask])) * 100 if mask.any() else np.nan
 
         results[name] = {
             "cv_mae": float(cv_mae),
-            "holdout_mae": hold_mae
+            "mae": float(mae),
+            "rmse": float(rmse),
+            "r2": float(r2),
+            "bias": float(bias),
         }
 
 
@@ -519,7 +528,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # ---------------- SAVE PREDICTIONS ----------------
         out = X_hold.copy()
         out["actual"] = y_hold
-        out["pred"] = hold_preds
+        out["pred"] = preds
         local_csv = f"/tmp/{name}_preds.csv"
         out.to_csv(local_csv, index=False)
         logging.info(f"[{name}] Saved preds locally: {local_csv}")
@@ -542,23 +551,16 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # ---------------- PERMUTATION IMPORTANCE ----------------
 
         try:
-            pre = best_pipe.named_steps["preprocessor"]
-            X_hold_trans = pre.transform(X_hold)
-
-            if scipy.sparse.issparse(X_hold_trans):
-                X_hold_trans = X_hold_trans.toarray()
-
-            feat_names = get_feature_names(pre)
 
             perm = permutation_importance(
-                best_pipe,
-                X_hold,
-                y_hold,
-                n_repeats=5,
-                random_state=42,
-                scoring="neg_mean_absolute_error",
-                n_jobs=-1
-            )
+            best_pipe,
+            X_hold,
+            y_hold_model,   # IMPORTANT: match training space
+            n_repeats=5,
+            random_state=42,
+            scoring="neg_mean_absolute_error",
+            n_jobs=-1
+        )
             feat_names = X_hold.columns
 
             imp_df = pd.DataFrame({
@@ -592,7 +594,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             continue
             
         agg = imp_df.groupby(
-            imp_df["feature"].str.split("_").str[0]
+            imp_df["feature"]
         )["importance"].sum().sort_values(ascending=False)
 
         top_feats = agg.head(3).index.tolist()
@@ -625,6 +627,9 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
        
        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
         top_features = imp_df.head(3)["feature"].tolist()
+
+        X_pdp = X.sample(min(2000, len(X)), random_state=42)
+
         for feature in top_features:
             try:
                 # Provide an explicit axes to safely render into
@@ -632,7 +637,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                 
                 PartialDependenceDisplay.from_estimator(
                     best_pipe,       
-                    X,       
+                    X_pdp,       
                     features=[feature],
                     kind="average",
                     ax=ax
