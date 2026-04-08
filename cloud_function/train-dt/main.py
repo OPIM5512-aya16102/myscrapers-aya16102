@@ -540,15 +540,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         
         # ---------------- PERMUTATION IMPORTANCE ----------------
-        clf = best_pipe.named_steps["clf"]
 
-        # unwrap TransformedTargetRegressor safely
-        if hasattr(clf, "regressor_"):
-            inner_model = clf.regressor_
-        else:
-            inner_model = clf
-
-        
         try:
             pre = best_pipe.named_steps["preprocessor"]
             X_hold_trans = pre.transform(X_hold)
@@ -629,25 +621,11 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             upload_file(client, fi_local_path, fi_gcs_path)
             logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
 
+       
+       
        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-        
-        top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
-
-        if len(top_encoded) == 0:
-            logging.warning(f"[{name}] No features available for PDP")
-            continue
-        
-        valid_idx = []
-        valid_names = []
-        for f in top_encoded:
-            if f in feat_names:
-                valid_idx.append(feat_names.index(f))
-                valid_names.append(f)
-
-        logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
-
-
-        for feature in top_feats:
+        top_features = imp_df.head(3)["feature"].tolist()
+        for feature in top_features:
             try:
                 # Provide an explicit axes to safely render into
                 fig, ax = plt.subplots(figsize=(8, 6))
