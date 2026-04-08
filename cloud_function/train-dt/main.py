@@ -100,6 +100,165 @@ def _clean_numeric(s: pd.Series) -> pd.Series:
     s = s.astype(str).str.replace(r"[^\d.]+", "", regex=True).str.strip()
     return pd.to_numeric(s, errors="coerce")
 
+def run_backtest(dry_run: bool = False):
+    client = storage.Client(project=PROJECT_ID)
+    df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
+
+    TIMEZONE = "America/New_York"
+
+    # ---------------- CLEAN ----------------
+    df["scraped_at"] = pd.to_datetime(df["scraped_at"], utc=True, errors="coerce")
+    df["date_local"] = df["scraped_at"].dt.tz_convert(TIMEZONE).dt.date
+
+    df["zipcode"] = df["zipcode"].astype(str).str.zfill(5)
+    df["make_model"] = df["make"] + "_" + df["model"]
+
+    current_year = pd.Timestamp.now(tz=TIMEZONE).year
+    df["age"] = current_year - df["year"]
+
+    df["price_num"] = clean_numeric(df["price"])
+    df["mileage_num"] = clean_numeric(df["mileage"])
+
+    df = df[(df["price_num"].notna()) & (df["price_num"] > 0)]
+
+    # -------- DEDUP (CRITICAL) --------
+    df = df.sort_values("scraped_at")
+    df = df.drop_duplicates("post_id", keep="first")
+
+    # ---------------- FEATURES ----------------
+    target = "price_num"
+    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
+    num_cols = ["age", "mileage_num"]
+    feats = cat_cols + num_cols + ["make_model"]
+
+    preprocessor = ColumnTransformer([
+        ("make_model", Pipeline([
+            ("topk", TopKEncoder(15)),
+            ("oh", OneHotEncoder(handle_unknown="ignore"))
+        ]), ["make_model"]),
+
+        ("cat", Pipeline([
+            ("imp", SimpleImputer(strategy="most_frequent")),
+            ("oh", OneHotEncoder(handle_unknown="ignore"))
+        ]), cat_cols),
+
+        ("num", SimpleImputer(strategy="median"), num_cols)
+    ])
+
+    models = {
+        "dt": DecisionTreeRegressor(),
+        "rf": TransformedTargetRegressor(
+            regressor=RandomForestRegressor(),
+            func=log10_transform,
+            inverse_func=inverse_log10
+        ),
+        "xgb": TransformedTargetRegressor(
+            regressor=XGBRegressor(),
+            func=log10_transform,
+            inverse_func=inverse_log10
+        )
+    }
+
+    param_grids = {
+        "dt": {
+            "clf__max_depth": [5, 10, 15, None],
+            "clf__min_samples_leaf": [1, 5, 10]
+        },
+        "rf": {
+            "clf__regressor__n_estimators": [100, 200],
+            "clf__regressor__max_depth": [10, None],
+            "clf__regressor__min_samples_leaf": [1, 5]
+        },
+        "xgb": {
+            "clf__regressor__n_estimators": [100, 200],
+            "clf__regressor__max_depth": [3, 6],
+            "clf__regressor__learning_rate": [0.05, 0.1]
+        }
+    }
+
+    # ---------------- ROLLING BACKTEST ----------------
+    all_dates = sorted(df["date_local"].dropna().unique())
+
+    start_date = pd.to_datetime("2026-04-01").date()
+    backtest_dates = [d for d in all_dates if d >= start_date]
+
+    results = []
+
+    for current_day in backtest_dates:
+        logging.info(f"=== Backtesting for day: {current_day} ===")
+
+        train_df = df[df["date_local"] < current_day].copy()
+
+        # HOLDOUT = LAST 2 DAYS
+        holdout_df = df[
+            (df["date_local"] >= current_day) &
+            (df["date_local"] < current_day + pd.Timedelta(days=2))
+        ].copy()
+
+        if len(train_df) < 50 or len(holdout_df) < 10:
+            continue
+
+        X_train = train_df[feats]
+        y_train = train_df[target]
+
+        X_hold = holdout_df[feats]
+        y_hold = holdout_df[target]
+
+        for name, model in models.items():
+            pipe = Pipeline([
+                ("preprocessor", clone(preprocessor)),
+                ("clf", model)
+            ])
+
+            cv = KFold(n_splits=3, shuffle=True, random_state=42)
+
+            search = RandomizedSearchCV(
+                pipe,
+                param_distributions=param_grids[name],
+                n_iter=8,
+                scoring="neg_mean_absolute_error",
+                cv=cv,
+                n_jobs=-1,
+                random_state=42
+            )
+
+            search.fit(X_train, y_train)
+            best_model = search.best_estimator_
+
+            preds = best_model.predict(X_hold)
+
+            # -------- METRICS --------
+            mae = mean_absolute_error(y_hold, preds)
+            rmse = np.sqrt(np.mean((y_hold - preds) ** 2))
+            r2 = 1 - np.sum((y_hold - preds)**2) / np.sum((y_hold - y_hold.mean())**2)
+            bias = np.mean(preds - y_hold)
+
+            mask = y_hold != 0
+            mape = np.mean(np.abs((y_hold[mask] - preds[mask]) / y_hold[mask])) * 100 if mask.any() else np.nan
+
+            results.append({
+                "date": current_day,
+                "model": name,
+                "mae": mae,
+                "rmse": rmse,
+                "mape": mape,
+                "r2": r2,
+                "bias": bias
+            })
+
+            logging.info(f"[{name}] {current_day} | MAE={mae:.2f}")
+
+    df_results = pd.DataFrame(results)
+
+    # ---------------- SAVE ----------------
+    local_path = "/tmp/backtest_metrics.csv"
+    df_results.to_csv(local_path, index=False)
+
+    if not dry_run:
+        upload_file(client, local_path, f"{OUTPUT_PREFIX}/backtest_metrics.csv")
+
+    return df_results
+
 def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int = 10):
     client = storage.Client(project=PROJECT_ID)
     df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
