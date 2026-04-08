@@ -487,14 +487,15 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             feat_names = get_feature_names(pre)
 
             perm = permutation_importance(
-                clf,
-                X_hold_trans,
+                best_pipe,
+                X_hold,
                 y_hold,
                 n_repeats=5,
                 random_state=42,
                 scoring="neg_mean_absolute_error",
                 n_jobs=-1
             )
+            feat_names = X_hold.columns
 
             imp_df = pd.DataFrame({
                 "feature": feat_names,
@@ -534,6 +535,8 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         # FIX: Inserted 'name' and 'top_feats'
         logging.info(f"[{name}] TOP AGGREGATED FEATURES: {top_feats}")
 
+        
+
         # ---------------- PLOT 1: FEATURE IMPORTANCE ----------------
         plt.figure(figsize=(10, 6))
         top_15_imp = imp_df.head(15).copy()
@@ -571,28 +574,16 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
 
-        # FIX 1: Generate PDP using a sample of historical TRAINING data, not the tiny holdout data
-        # This ensures rare cars/features actually exist in the data we plot
-        X_train_trans = pre.transform(X)
-        if scipy.sparse.issparse(X_train_trans):
-            X_train_trans = X_train_trans.toarray()
-            
-        np.random.seed(42)
-        sample_size = min(2000, X_train_trans.shape[0]) # Cap at 2000 rows for fast processing
-        idx_sample = np.random.choice(X_train_trans.shape[0], sample_size, replace=False)
-        X_pdp_bg = X_train_trans[idx_sample]
 
-
-        for idx, name_ in zip(valid_idx, valid_names):
+        for feature in top_feats:
             try:
                 # Provide an explicit axes to safely render into
                 fig, ax = plt.subplots(figsize=(8, 6))
                 
                 PartialDependenceDisplay.from_estimator(
                     best_pipe,       
-                    X_pdp_bg,       
-                    features=[idx],
-                    feature_names=feat_names, # Maps indices back to real names for axes labels
+                    X,       
+                    features=[feature],
                     kind="average",
                     ax=ax
                 )
