@@ -237,7 +237,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
     X_hold = holdout_df[feats]
     y_hold = holdout_df[target]
-    y_train_model = np.log10(y)
+    y_train_model = np.log10(train_df[target])
     y_hold_model = np.log10(y_hold)
     base_path = pd.Timestamp.now(tz="UTC").strftime('%Y%m%d%H')
     results = {}
@@ -436,7 +436,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     
     return {"status": "ok", "mae": results}
             
-def run_backtest(dry_run: bool = False):
+#def run_backtest(dry_run: bool = False):
     client = storage.Client(project=PROJECT_ID)
     df = _read_csv_from_gcs(client, GCS_BUCKET, DATA_KEY)
 
@@ -530,86 +530,86 @@ def run_backtest(dry_run: bool = False):
 
         X_hold = holdout_df[feats]
         y_hold = holdout_df[target]
-        y_train_model = np.log10(y)
+        y_train_model = np.log10(train_df[target])
         y_hold_model = np.log10(y_hold)
         base_path = pd.Timestamp.now(tz="UTC").strftime('%Y%m%d%H')
         results = {}
+        os.makedirs("/tmp/run", exist_ok=True)
+        for name, model in models.items():
+            pipe = Pipeline([
+                ("preprocessor", preprocessor),
+                ("clf", model)
+            ])
 
-    for name, model in models.items():
-        pipe = Pipeline([
-            ("preprocessor", clone(preprocessor)),
-            ("clf", model)
-        ])
+            cv = TimeSeriesSplit(n_splits=3)
 
-        cv = TimeSeriesSplit(n_splits=3)
+            search = RandomizedSearchCV(
+                pipe,
+                param_distributions=param_grids[name],
+                n_iter=10,
+                scoring="neg_mean_absolute_error",
+                cv=cv,
+                verbose=1,
+                n_jobs=-1,
+                random_state=42
+            )
 
-        search = RandomizedSearchCV(
-            pipe,
-            param_distributions=param_grids[name],
-            n_iter=10,
-            scoring="neg_mean_absolute_error",
-            cv=cv,
-            verbose=1,
-            n_jobs=-1,
-            random_state=42
-        )
+            search.fit(train_df[feats], y_train_model)  
+            
+            feat_names = get_feature_names(pre)
 
-        search.fit(X, y_train_model)  
-        pre = best_pipe.named_steps["preprocessor"]
-        feat_names = get_feature_names(pre)
+            best_pipe = search.best_estimator_
+            pre = best_pipe.named_steps["preprocessor"]
+            logging.info(f"[{name}] Best params: {search.best_params_}")
+            
+            # Cross-validation MAE (replaces val_mae)
+            cv_mae = -search.best_score_
 
-        best_pipe = search.best_estimator_
+            # 2. HOLDOUT predictions (REAL unseen evaluation)
+            hold_preds = best_pipe.predict(X_hold)
+            preds = 10 ** hold_preds
+            y_hold_real = y_hold
+            mae = mean_absolute_error(y_hold_real, preds)
+            rmse = np.sqrt(np.mean((y_hold_real - preds) ** 2))
+            r2 = 1 - np.sum((y_hold_real - preds)**2) / np.sum((y_hold_real - y_hold_real.mean())**2)
+            bias = np.mean(preds - y_hold_real)
 
-        logging.info(f"[{name}] Best params: {search.best_params_}")
-        
-        # Cross-validation MAE (replaces val_mae)
-        cv_mae = -search.best_score_
+            mask = y_hold_real != 0
+            mape = np.mean(np.abs((y_hold_real[mask] - preds[mask]) / y_hold_real[mask])) * 100 if mask.any() else np.nan
 
-        # 2. HOLDOUT predictions (REAL unseen evaluation)
-        hold_preds = best_pipe.predict(X_hold)
-        preds = 10 ** hold_preds
-        y_hold_real = y_hold
-        mae = mean_absolute_error(y_hold_real, preds)
-        rmse = np.sqrt(np.mean((y_hold_real - preds) ** 2))
-        r2 = 1 - np.sum((y_hold_real - preds)**2) / np.sum((y_hold_real - y_hold_real.mean())**2)
-        bias = np.mean(preds - y_hold_real)
-
-        mask = y_hold_real != 0
-        mape = np.mean(np.abs((y_hold_real[mask] - preds[mask]) / y_hold_real[mask])) * 100 if mask.any() else np.nan
-
-        results[name] = {
-            "cv_mae": float(cv_mae),
-            "mae": float(mae),
-            "rmse": float(rmse),
-            "r2": float(r2),
-            "bias": float(bias),
-        }
+            results[name] = {
+                "cv_mae": float(cv_mae),
+                "mae": float(mae),
+                "rmse": float(rmse),
+                "r2": float(r2),
+                "bias": float(bias),
+            }
 
 
-        # ---------------- SAVE MODEL ----------------
-        # FIX: Added name
-        local_model = f"/tmp/run/{name}.joblib"
-        joblib.dump(best_pipe, local_model)
-        logging.info(f"[{name}] Saved model locally: {local_model}")
-        # ---------------- SAVE PREDICTIONS ----------------
-        out = X_hold.copy()
-        out["actual"] = y_hold
-        out["pred"] = preds
-        local_csv = f"/tmp/{name}_preds.csv"
-        out.to_csv(local_csv, index=False)
-        logging.info(f"[{name}] Saved preds locally: {local_csv}")
+            # ---------------- SAVE MODEL ----------------
+            # FIX: Added name
+            local_model = f"/tmp/run/{name}.joblib"
+            joblib.dump(best_pipe, local_model)
+            logging.info(f"[{name}] Saved model locally: {local_model}")
+            # ---------------- SAVE PREDICTIONS ----------------
+            out = X_hold.copy()
+            out["actual"] = y_hold
+            out["pred"] = preds
+            local_csv = f"/tmp/{name}_preds.csv"
+            out.to_csv(local_csv, index=False)
+            logging.info(f"[{name}] Saved preds locally: {local_csv}")
 
-        if not dry_run:
-            # FIX: Correctly built GCS paths
-            gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/run/models/{name}.joblib"
-            upload_file(client, local_model, gcs_model_path)
-            logging.info(f"[{name}] Uploaded model to GCS: {gcs_model_path}")
+            if not dry_run:
+                # FIX: Correctly built GCS paths
+                gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/run/models/{name}.joblib"
+                upload_file(client, local_model, gcs_model_path)
+                logging.info(f"[{name}] Uploaded model to GCS: {gcs_model_path}")
 
-        if not dry_run:
-            # FIX: Correctly built GCS paths
-            gcs_csv_path = f"{OUTPUT_PREFIX}/{base_path}/run/preds/{name}_preds.csv"
-            upload_file(client, local_csv, gcs_csv_path)
-            logging.info(f"[{name}] Uploaded preds to GCS: {gcs_csv_path}")
+            if not dry_run:
+                # FIX: Correctly built GCS paths
+                gcs_csv_path = f"{OUTPUT_PREFIX}/{base_path}/run/preds/{name}_preds.csv"
+                upload_file(client, local_csv, gcs_csv_path)
+                logging.info(f"[{name}] Uploaded preds to GCS: {gcs_csv_path}")
 
         
 
