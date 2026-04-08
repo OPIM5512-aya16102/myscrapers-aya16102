@@ -249,12 +249,12 @@ def run_backtest(dry_run: bool = False):
             pred_df["actual"] = y_hold
             pred_df["pred"] = preds
 
-            pred_path = f"/tmp/{name}_{current_day}_preds.csv"
+            pred_path = f"{OUTPUT_PREFIX}/{base_path}/tmp/{name}_{current_day}_preds.csv"
             pred_df.to_csv(pred_path, index=False)
 
             if not dry_run:
                 upload_file(client, pred_path,
-                    f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_preds.csv")
+                    f"{OUTPUT_PREFIX}/{base_path}/backtest/{current_day}/{name}_preds.csv")
 
             # ---------------- PERMUTATION IMPORTANCE ----------------
             perm = permutation_importance(
@@ -278,7 +278,7 @@ def run_backtest(dry_run: bool = False):
 
             if not dry_run:
                 upload_file(client, imp_path,
-                    f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_perm.csv")
+                    f"{OUTPUT_PREFIX}/{base_path}/backtest/{current_day}/{name}_perm.csv")
 
             # ---------------- PDP (TOP 3 FEATURES) ----------------
             top_features = imp_df.head(3)["feature"].tolist()
@@ -314,7 +314,7 @@ def run_backtest(dry_run: bool = False):
 
                     if not dry_run:
                         upload_file(client, pdp_path,
-                            f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_pdp_{feature}.png")
+                            f"{OUTPUT_PREFIX}/{base_path}/backtest/{current_day}/{name}_pdp_{feature}.png")
 
                 except Exception as e:
                     logging.warning(f"PDP failed for {feature}: {e}")
@@ -322,12 +322,12 @@ def run_backtest(dry_run: bool = False):
     # ---------------- SAVE METRICS ----------------
     df_results = pd.DataFrame(results)
 
-    metrics_path = "/tmp/backtest_metrics.csv"
+    metrics_path = "{OUTPUT_PREFIX}/{base_path}/tmp/backtest_metrics.csv"
     df_results.to_csv(metrics_path, index=False)
 
     if not dry_run:
         upload_file(client, metrics_path,
-            f"{OUTPUT_PREFIX}/backtest_metrics.csv")
+            f"{OUTPUT_PREFIX}/{base_path}/backtest_metrics.csv")
 
     return df_results
 
@@ -540,15 +540,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         
         # ---------------- PERMUTATION IMPORTANCE ----------------
-        clf = best_pipe.named_steps["clf"]
 
-        # unwrap TransformedTargetRegressor safely
-        if hasattr(clf, "regressor_"):
-            inner_model = clf.regressor_
-        else:
-            inner_model = clf
-
-        
         try:
             pre = best_pipe.named_steps["preprocessor"]
             X_hold_trans = pre.transform(X_hold)
@@ -629,25 +621,11 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             upload_file(client, fi_local_path, fi_gcs_path)
             logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
 
+       
+       
        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-        
-        top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
-
-        if len(top_encoded) == 0:
-            logging.warning(f"[{name}] No features available for PDP")
-            continue
-        
-        valid_idx = []
-        valid_names = []
-        for f in top_encoded:
-            if f in feat_names:
-                valid_idx.append(feat_names.index(f))
-                valid_names.append(f)
-
-        logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
-
-
-        for feature in top_feats:
+        top_features = imp_df.head(3)["feature"].tolist()
+        for feature in top_features:
             try:
                 # Provide an explicit axes to safely render into
                 fig, ax = plt.subplots(figsize=(8, 6))
