@@ -153,6 +153,28 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     # Test ONLY on brand new post_ids that hit the market TODAY
     holdout_df = df[df["date_local"] == today_local].copy()
 
+
+    unique_dates = sorted(d for d in df["date_local"].dropna().unique())
+
+    if len(unique_dates) < 3:
+        return {
+            "status": "noop",
+            "reason": "need at least 3 distinct dates for 2-day holdout",
+            "dates": [str(d) for d in unique_dates]
+        }
+
+    # ✅ Last 2 days = holdout
+    holdout_dates = unique_dates[-2:]
+
+    # ✅ Everything before = training
+    train_df   = df[df["date_local"] < holdout_dates[0]].copy()
+    holdout_df = df[df["date_local"].isin(holdout_dates)].copy()
+
+    logging.info(f"Train date range: < {holdout_dates[0]}")
+    logging.info(f"Holdout dates: {holdout_dates}")
+    logging.info(f"Train rows: {len(train_df)}")
+    logging.info(f"Holdout rows: {len(holdout_df)}")
+
     logging.info("Historical Train Rows: %d", len(train_df))
     logging.info("Brand New Holdout Rows (%s): %d", today_local, len(holdout_df))
 
@@ -210,6 +232,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         )
     }
 
+    train_df = train_df.sort_values("scraped_at_dt_utc")
     X = train_df[feats]
     y = train_df[target]
 
