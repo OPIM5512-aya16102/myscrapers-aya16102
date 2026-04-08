@@ -262,10 +262,11 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         )
 
         search.fit(X, y_train_model)  
+        best_pipe = search.best_estimator_
         pre = best_pipe.named_steps["preprocessor"]
         feat_names = get_feature_names(pre)
 
-        best_pipe = search.best_estimator_
+        
 
         logging.info(f"[{name}] Best params: {search.best_params_}")
         
