@@ -1,0 +1,164 @@
+feature,importance_mean,importance_std
+make_model_BMW_X2,0.0,0.0
+make_model_CHEVROLET_COBALT,0.0,0.0
+make_model_Dodge_Neon,0.0,0.0
+make_model_Honda_CR-V EX,0.0,0.0
+make_model_Honda_Civic LX,0.0,0.0
+make_model_Jeep_Grand Cherokee,0.0,0.0
+make_model_Jeep_Grand Cherokee Overland,0.0,0.0
+make_model_Nissan_Altima,0.0,0.0
+make_model_Nissan_Rogue,0.0,0.0
+make_model_Subaru_Crosstrek,0.0,0.0
+make_model_Subaru_Forester,0.0,0.0
+make_model_Subaru_Outback,-0.6388695810502668,1.8615061049954376
+make_model_Toyota_Camry,0.0,0.0
+make_model_Toyota_Venza,0.0,0.0
+make_model_other,22.669837540216758,14.086340741764095
+make_model_volkswagen_tiguan,0.0,0.0
+color_Gray,0.0,0.0
+color_Silver,0.0,0.0
+color_Tan,0.0,0.0
+color_beige,0.0,0.0
+color_black,8.158063561463951,14.033584591643562
+color_blue,25.336497431193628,29.236267567045765
+color_brown,0.0,0.0
+color_burgundy,0.0,0.0
+color_cream,0.0,0.0
+color_custom,-13.00899587435988,12.749473292212379
+color_gold,0.0,0.0
+color_gray,-44.46315971726649,43.645548311237285
+color_green,0.0,0.0
+color_grey,0.0,0.0
+color_maroon,0.0,0.0
+color_maroon/silver,0.0,0.0
+color_purple,0.0,0.0
+color_red,0.0,0.0
+color_silver,-14.370936265926229,29.236691860464056
+color_white,41.55115316233018,33.97324324253165
+color_yellow,0.0,0.0
+condition_excellent,36.21446869332844,55.82087740574014
+condition_fair,331.4542776752538,286.24876147473816
+condition_good,-15.56499085414157,28.730745866684117
+condition_like_new,-131.91739386762097,107.95366352762719
+condition_new,0.0,0.0
+condition_salvage,0.0,0.0
+transmission_automatic,-8.275335823057413,8.89664300047021
+transmission_manual,1.9399855751419637,2.9526857020938504
+fuel_CNG,0.0,0.0
+fuel_diesel,48.43011806373956,43.354894754950415
+fuel_electric,0.0,0.0
+fuel_gas,40.34351415242954,22.833702264947494
+fuel_gasoline,0.0,0.0
+fuel_hybrid,0.0,0.0
+fuel_natural gas,0.0,0.0
+fuel_other,0.0,0.0
+city_Ansonia,0.0,0.0
+city_Berlin,0.0,0.0
+city_Bethany,0.0,0.0
+city_Branford,0.0,0.0
+city_Bridgeport,0.0,0.0
+city_Bronx,0.0,0.0
+city_Cheshire,0.0,0.0
+city_Clinton,0.0,0.0
+city_Danbury,0.0,0.0
+city_Deep River,0.0,0.0
+city_Derby,0.0,0.0
+city_East Granby,18.925444409463672,9.462722204731836
+city_Ellington,0.0,0.0
+city_Fairfield,0.0,0.0
+city_Guilford,0.0,0.0
+city_Hamden,0.0,0.0
+city_Hudson,0.0,0.0
+city_Killingworth,0.0,0.0
+city_Lake Crystal,0.0,0.0
+city_Madison,0.0,0.0
+city_Manchester,0.0,0.0
+city_Meriden,3.6838768997734403,2.1012122059715126
+city_Middlebury,0.0,0.0
+city_Milford,0.0,0.0
+city_Nashua,0.0,0.0
+city_Naugatuck,0.0,0.0
+city_New Haven,0.0,0.0
+city_New Milford,0.0,0.0
+city_Newtown,0.0,0.0
+city_North Branford,-1.6471920517929448,3.2943841035858896
+city_North Haven,0.0,0.0
+city_Norwalk,0.0,0.0
+city_Oakville,0.0,0.0
+city_Old Saybrook,0.0,0.0
+city_Orange,0.0,0.0
+city_Oxford,0.0,0.0
+city_Patterson,0.0,0.0
+city_Poughkeepsie,0.0,0.0
+city_Shelton,173.83026965928858,126.0653529174176
+city_Southbury,0.0,0.0
+city_Stamford,0.0,0.0
+city_Stratford,1.2804812994336316,1.0693128608273885
+city_Trumbull,0.0,0.0
+city_Upper Saddle River,0.0,0.0
+city_Wallingford,0.0,0.0
+city_Waterbury,0.9070947650843664,5.551557629077102
+city_West Hartford,0.0,0.0
+city_West Haven,9.759179711942124,8.579137008688676
+city_West Springfield,0.0,0.0
+city_Wolcott,0.0,0.0
+state_CT,-17.18488679333559,14.285420100811207
+state_MA,0.0,0.0
+state_MN,0.0,0.0
+state_NH,0.0,0.0
+state_NJ,0.0,0.0
+state_NY,0.0,0.0
+zipcode_10475.0,0.0,0.0
+zipcode_1089.0,0.0,0.0
+zipcode_12563.0,0.0,0.0
+zipcode_12601.0,0.0,0.0
+zipcode_3051.0,0.0,0.0
+zipcode_3062.0,0.0,0.0
+zipcode_3101.0,0.0,0.0
+zipcode_56055.0,0.0,0.0
+zipcode_6026.0,13.419042737041309,6.7095213685206545
+zipcode_6029.0,0.0,0.0
+zipcode_6037.0,0.0,0.0
+zipcode_6107.0,0.0,0.0
+zipcode_6401.0,0.0,0.0
+zipcode_6405.0,0.0,0.0
+zipcode_6410.0,0.0,0.0
+zipcode_6413.0,0.0,0.0
+zipcode_6417.0,0.0,0.0
+zipcode_6418.0,0.0,0.0
+zipcode_6419.0,0.0,0.0
+zipcode_6437.0,0.0,0.0
+zipcode_6443.0,0.0,0.0
+zipcode_6450.0,0.0,0.0
+zipcode_6460.0,0.0,0.0
+zipcode_6470.0,0.0,0.0
+zipcode_6471.0,-3.1602862513519994,2.1291440281464924
+zipcode_6473.0,0.0,0.0
+zipcode_6475.0,0.0,0.0
+zipcode_6477.0,0.0,0.0
+zipcode_6478.0,0.0,0.0
+zipcode_6484.0,0.0,0.0
+zipcode_6488.0,0.0,0.0
+zipcode_6492.0,0.0,0.0
+zipcode_6510.0,0.0,0.0
+zipcode_6514.0,0.0,0.0
+zipcode_6516.0,0.0,0.0
+zipcode_6524.0,0.0,0.0
+zipcode_6604.0,0.0,0.0
+zipcode_6606.0,62.028144398302445,64.06585679148756
+zipcode_6611.0,0.0,0.0
+zipcode_6614.0,0.0,0.0
+zipcode_6615.0,0.0,0.0
+zipcode_6702.0,0.0,0.0
+zipcode_6716.0,0.0,0.0
+zipcode_6762.0,0.0,0.0
+zipcode_6770.0,0.0,0.0
+zipcode_6776.0,0.0,0.0
+zipcode_6779.0,0.0,0.0
+zipcode_6810.0,0.0,0.0
+zipcode_6824.0,0.0,0.0
+zipcode_6850.0,0.0,0.0
+zipcode_6902.0,0.0,0.0
+zipcode_7458.0,0.0,0.0
+age,701.1051049579534,406.40650185582
+mileage_num,438.9647760620758,305.15001436812

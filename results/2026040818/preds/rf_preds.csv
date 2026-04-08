@@ -1,0 +1,11 @@
+color,condition,transmission,fuel,city,state,zipcode,age,mileage_num,make_model,actual,pred
+blue,excellent,manual,gas,Shelton,Connecticut,,16,190000,Volkswagen_Jetta S,3500.0,5186.500237528182
+silver,fair,manual,gas,Waterbury,CT,,17,215000,Audi_A5,2500.0,2485.429404202704
+black,excellent,automatic,gas,Meriden,CT,,11,124948,Mercedes-Benz_GL450 4MATIC,10950.0,9812.60394430267
+white,excellent,automatic,gas,East Granby,CT,6026.0,10,165728,Subaru_Outback,9599.0,9575.909939796127
+custom,fair,automatic,gas,East Haven,CT,,23,258000,toyota_highlander,1800.0,2825.114613772525
+blue,excellent,automatic,gas,Shelton,CT,,8,175000,subaru_legacy,7200.0,8725.441462549701
+white,good,automatic,diesel,North Branford,CT,6471.0,19,150000,Chevy_3500,5700.0,5945.1997300301455
+silver,good,automatic,gas,Stratford,CT,,15,165000,Chevy_Malibu,2999.0,4673.433492565955
+silver,excellent,automatic,gas,Shelton,CT,,11,183000,Subaru_Impreza,4700.0,7096.053247926012
+gray,like_new,automatic,gas,West Haven,CT,,10,59000,Subaru_Impreza Wagon,13000.0,20590.79853843501
