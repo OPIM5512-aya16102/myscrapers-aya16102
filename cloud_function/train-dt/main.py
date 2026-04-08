@@ -249,12 +249,12 @@ def run_backtest(dry_run: bool = False):
             pred_df["actual"] = y_hold
             pred_df["pred"] = preds
 
-            pred_path = f"/tmp/{name}_{current_day}_preds.csv"
+            pred_path = f"{OUTPUT_PREFIX}/{base_path}/tmp/{name}_{current_day}_preds.csv"
             pred_df.to_csv(pred_path, index=False)
 
             if not dry_run:
                 upload_file(client, pred_path,
-                    f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_preds.csv")
+                    f"{OUTPUT_PREFIX}/{base_path}/backtest/{current_day}/{name}_preds.csv")
 
             # ---------------- PERMUTATION IMPORTANCE ----------------
             perm = permutation_importance(
@@ -278,7 +278,7 @@ def run_backtest(dry_run: bool = False):
 
             if not dry_run:
                 upload_file(client, imp_path,
-                    f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_perm.csv")
+                    f"{OUTPUT_PREFIX}/{base_path}/backtest/{current_day}/{name}_perm.csv")
 
             # ---------------- PDP (TOP 3 FEATURES) ----------------
             top_features = imp_df.head(3)["feature"].tolist()
@@ -314,7 +314,7 @@ def run_backtest(dry_run: bool = False):
 
                     if not dry_run:
                         upload_file(client, pdp_path,
-                            f"{OUTPUT_PREFIX}/backtest/{current_day}/{name}_pdp_{feature}.png")
+                            f"{OUTPUT_PREFIX}/{base_path}/backtest/{current_day}/{name}_pdp_{feature}.png")
 
                 except Exception as e:
                     logging.warning(f"PDP failed for {feature}: {e}")
@@ -322,12 +322,12 @@ def run_backtest(dry_run: bool = False):
     # ---------------- SAVE METRICS ----------------
     df_results = pd.DataFrame(results)
 
-    metrics_path = "/tmp/backtest_metrics.csv"
+    metrics_path = "{OUTPUT_PREFIX}/{base_path}/tmp/backtest_metrics.csv"
     df_results.to_csv(metrics_path, index=False)
 
     if not dry_run:
         upload_file(client, metrics_path,
-            f"{OUTPUT_PREFIX}/backtest_metrics.csv")
+            f"{OUTPUT_PREFIX}/{base_path}/backtest_metrics.csv")
 
     return df_results
 
