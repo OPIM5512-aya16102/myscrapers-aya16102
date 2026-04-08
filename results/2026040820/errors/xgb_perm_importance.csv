@@ -1,0 +1,164 @@
+feature,importance,std
+mileage_num,1380.3415093315973,468.2085631913648
+age,605.5542209201387,151.0219883137853
+make_model_BMW_X3,0.0,0.0
+make_model_Honda_Civic LX,0.0,0.0
+make_model_Jeep_Grand Cherokee,0.0,0.0
+make_model_Jeep_Grand Cherokee Overland,0.0,0.0
+make_model_Jeep_Wrangler Sahara,0.0,0.0
+make_model_Nissan_Altima,0.0,0.0
+make_model_Nissan_Rogue,0.0,0.0
+make_model_Pontiac_Trans Am,0.0,0.0
+make_model_Subaru_Crosstrek,0.0,0.0
+make_model_Subaru_Forester,0.0,0.0
+make_model_Subaru_Outback,0.0,0.0
+make_model_Toyota_Camry,0.0,0.0
+make_model_other,0.0,0.0
+make_model_volkswagen_tiguan,0.0,0.0
+color_Gray,0.0,0.0
+color_Silver,0.0,0.0
+color_Tan,0.0,0.0
+color_beige,0.0,0.0
+color_black,0.0,0.0
+color_blue,0.0,0.0
+color_brown,0.0,0.0
+color_burgundy,0.0,0.0
+color_cream,0.0,0.0
+color_custom,0.0,0.0
+color_gold,0.0,0.0
+color_gray,0.0,0.0
+color_green,0.0,0.0
+color_grey,0.0,0.0
+color_maroon,0.0,0.0
+color_maroon/silver,0.0,0.0
+color_purple,0.0,0.0
+make_model_Ford_F-350,0.0,0.0
+make_model_Ford_Ranger XLT,0.0,0.0
+color_silver,0.0,0.0
+color_red,0.0,0.0
+color_white,0.0,0.0
+color_yellow,0.0,0.0
+condition_good,0.0,0.0
+condition_like_new,0.0,0.0
+condition_excellent,0.0,0.0
+condition_fair,0.0,0.0
+transmission_automatic,0.0,0.0
+transmission_manual,0.0,0.0
+fuel_CNG,0.0,0.0
+fuel_diesel,0.0,0.0
+fuel_electric,0.0,0.0
+fuel_gas,0.0,0.0
+condition_new,0.0,0.0
+condition_salvage,0.0,0.0
+fuel_natural gas,0.0,0.0
+fuel_other,0.0,0.0
+city_Ansonia,0.0,0.0
+city_Berlin,0.0,0.0
+city_Bethany,0.0,0.0
+city_Branford,0.0,0.0
+city_Bridgeport,0.0,0.0
+city_Bronx,0.0,0.0
+city_Cheshire,0.0,0.0
+city_Clinton,0.0,0.0
+city_Danbury,0.0,0.0
+city_Deep River,0.0,0.0
+city_Derby,0.0,0.0
+city_East Granby,0.0,0.0
+fuel_gasoline,0.0,0.0
+fuel_hybrid,0.0,0.0
+city_Guilford,0.0,0.0
+city_Hamden,0.0,0.0
+city_Hudson,0.0,0.0
+city_Killingworth,0.0,0.0
+city_Lake Crystal,0.0,0.0
+city_Madison,0.0,0.0
+city_Manchester,0.0,0.0
+city_Meriden,0.0,0.0
+city_Middlebury,0.0,0.0
+city_Milford,0.0,0.0
+city_Nashua,0.0,0.0
+city_Naugatuck,0.0,0.0
+city_New Haven,0.0,0.0
+city_New Milford,0.0,0.0
+city_Newtown,0.0,0.0
+city_North Branford,0.0,0.0
+city_North Haven,0.0,0.0
+city_Norwalk,0.0,0.0
+city_Oakville,0.0,0.0
+city_Old Saybrook,0.0,0.0
+city_Orange,0.0,0.0
+city_Oxford,0.0,0.0
+city_Patterson,0.0,0.0
+city_Poughkeepsie,0.0,0.0
+city_Shelton,0.0,0.0
+city_Southbury,0.0,0.0
+city_Stamford,0.0,0.0
+city_Stratford,0.0,0.0
+city_Trumbull,0.0,0.0
+city_Upper Saddle River,0.0,0.0
+city_Ellington,0.0,0.0
+city_Fairfield,0.0,0.0
+city_Waterbury,0.0,0.0
+city_Wallingford,0.0,0.0
+city_West Hartford,0.0,0.0
+city_West Haven,0.0,0.0
+state_CT,0.0,0.0
+state_MA,0.0,0.0
+city_West Springfield,0.0,0.0
+city_Wolcott,0.0,0.0
+state_NJ,0.0,0.0
+state_NY,0.0,0.0
+zipcode_10475.0,0.0,0.0
+zipcode_1089.0,0.0,0.0
+zipcode_12563.0,0.0,0.0
+zipcode_12601.0,0.0,0.0
+state_MN,0.0,0.0
+state_NH,0.0,0.0
+zipcode_3101.0,0.0,0.0
+zipcode_56055.0,0.0,0.0
+zipcode_6026.0,0.0,0.0
+zipcode_6029.0,0.0,0.0
+zipcode_6037.0,0.0,0.0
+zipcode_6107.0,0.0,0.0
+zipcode_6401.0,0.0,0.0
+zipcode_6405.0,0.0,0.0
+zipcode_6410.0,0.0,0.0
+zipcode_6413.0,0.0,0.0
+zipcode_6417.0,0.0,0.0
+zipcode_6418.0,0.0,0.0
+zipcode_6419.0,0.0,0.0
+zipcode_6437.0,0.0,0.0
+zipcode_3051.0,0.0,0.0
+zipcode_3062.0,0.0,0.0
+zipcode_6450.0,0.0,0.0
+zipcode_6443.0,0.0,0.0
+zipcode_6460.0,0.0,0.0
+zipcode_6470.0,0.0,0.0
+zipcode_6475.0,0.0,0.0
+zipcode_6477.0,0.0,0.0
+zipcode_6471.0,0.0,0.0
+zipcode_6473.0,0.0,0.0
+zipcode_6488.0,0.0,0.0
+zipcode_6492.0,0.0,0.0
+zipcode_6510.0,0.0,0.0
+zipcode_6514.0,0.0,0.0
+zipcode_6516.0,0.0,0.0
+zipcode_6524.0,0.0,0.0
+zipcode_6478.0,0.0,0.0
+zipcode_6484.0,0.0,0.0
+zipcode_6606.0,0.0,0.0
+zipcode_6604.0,0.0,0.0
+zipcode_6611.0,0.0,0.0
+zipcode_6614.0,0.0,0.0
+zipcode_6716.0,0.0,0.0
+zipcode_6762.0,0.0,0.0
+zipcode_6615.0,0.0,0.0
+zipcode_6702.0,0.0,0.0
+zipcode_6776.0,0.0,0.0
+zipcode_6770.0,0.0,0.0
+zipcode_6779.0,0.0,0.0
+zipcode_6810.0,0.0,0.0
+zipcode_6850.0,0.0,0.0
+zipcode_6824.0,0.0,0.0
+zipcode_7458.0,0.0,0.0
+zipcode_6902.0,0.0,0.0

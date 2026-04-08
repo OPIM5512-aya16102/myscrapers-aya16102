@@ -1,0 +1,164 @@
+feature,importance,std
+mileage_num,907.7532280863401,315.04289469542186
+condition_fair,718.8456735523438,166.70320539041685
+age,402.4913823229793,363.35201894197013
+city_Shelton,148.72096781628593,99.6742974591962
+color_white,44.518372122441136,40.14816290188903
+zipcode_6606.0,32.12039618550157,36.004895471684826
+transmission_manual,18.989297769422866,26.129118641012028
+color_blue,7.127210291939082,28.18810756082855
+condition_good,4.46911618320878,4.918600546768909
+city_Stratford,1.1728134507392496,2.6853465993772248
+make_model_Pontiac_Trans Am,0.0,0.0
+make_model_Ford_Ranger XLT,0.0,0.0
+make_model_Honda_Civic LX,0.0,0.0
+make_model_Jeep_Grand Cherokee Overland,0.0,0.0
+make_model_Jeep_Grand Cherokee,0.0,0.0
+make_model_Nissan_Altima,0.0,0.0
+make_model_Nissan_Rogue,0.0,0.0
+color_Silver,0.0,0.0
+make_model_Subaru_Crosstrek,0.0,0.0
+color_Tan,0.0,0.0
+color_beige,0.0,0.0
+color_brown,0.0,0.0
+color_burgundy,0.0,0.0
+color_gold,0.0,0.0
+color_cream,0.0,0.0
+color_grey,0.0,0.0
+make_model_Jeep_Wrangler Sahara,0.0,0.0
+make_model_Subaru_Forester,0.0,0.0
+make_model_Subaru_Outback,0.0,0.0
+make_model_Toyota_Camry,0.0,0.0
+make_model_other,0.0,0.0
+make_model_volkswagen_tiguan,0.0,0.0
+color_Gray,0.0,0.0
+make_model_Ford_F-350,0.0,0.0
+make_model_BMW_X3,0.0,0.0
+zipcode_6776.0,0.0,0.0
+zipcode_6604.0,0.0,0.0
+zipcode_6450.0,0.0,0.0
+zipcode_6460.0,0.0,0.0
+color_maroon/silver,0.0,0.0
+color_maroon,0.0,0.0
+color_purple,0.0,0.0
+color_red,0.0,0.0
+color_green,0.0,0.0
+fuel_hybrid,0.0,0.0
+fuel_gasoline,0.0,0.0
+city_Bethany,0.0,0.0
+city_Berlin,0.0,0.0
+fuel_electric,0.0,0.0
+condition_salvage,0.0,0.0
+condition_new,0.0,0.0
+city_Cheshire,0.0,0.0
+city_Clinton,0.0,0.0
+city_Danbury,0.0,0.0
+city_Deep River,0.0,0.0
+city_Derby,0.0,0.0
+city_Branford,0.0,0.0
+city_Bridgeport,0.0,0.0
+city_Bronx,0.0,0.0
+city_Ellington,0.0,0.0
+city_East Granby,0.0,0.0
+city_Fairfield,0.0,0.0
+city_Lake Crystal,0.0,0.0
+city_Hamden,0.0,0.0
+city_Ansonia,0.0,0.0
+fuel_CNG,0.0,0.0
+color_yellow,0.0,0.0
+city_Poughkeepsie,0.0,0.0
+city_Patterson,0.0,0.0
+city_North Haven,0.0,0.0
+city_Norwalk,0.0,0.0
+city_Orange,0.0,0.0
+city_Madison,0.0,0.0
+city_Hudson,0.0,0.0
+city_Killingworth,0.0,0.0
+city_New Haven,0.0,0.0
+city_Milford,0.0,0.0
+city_Nashua,0.0,0.0
+city_Naugatuck,0.0,0.0
+city_Newtown,0.0,0.0
+city_New Milford,0.0,0.0
+city_Manchester,0.0,0.0
+city_Middlebury,0.0,0.0
+city_Trumbull,0.0,0.0
+city_Upper Saddle River,0.0,0.0
+city_Southbury,0.0,0.0
+city_Stamford,0.0,0.0
+city_Wallingford,0.0,0.0
+city_Oxford,0.0,0.0
+city_Oakville,0.0,0.0
+city_Old Saybrook,0.0,0.0
+state_MA,0.0,0.0
+city_Wolcott,0.0,0.0
+city_West Springfield,0.0,0.0
+state_NH,0.0,0.0
+city_West Hartford,0.0,0.0
+city_Guilford,0.0,0.0
+fuel_other,0.0,0.0
+fuel_natural gas,0.0,0.0
+zipcode_6850.0,0.0,0.0
+zipcode_6770.0,0.0,0.0
+zipcode_6611.0,0.0,0.0
+zipcode_6614.0,0.0,0.0
+zipcode_6478.0,0.0,0.0
+zipcode_6477.0,0.0,0.0
+zipcode_6473.0,0.0,0.0
+zipcode_6470.0,0.0,0.0
+zipcode_12563.0,0.0,0.0
+zipcode_12601.0,0.0,0.0
+zipcode_10475.0,0.0,0.0
+zipcode_1089.0,0.0,0.0
+zipcode_3051.0,0.0,0.0
+state_MN,0.0,0.0
+state_NY,0.0,0.0
+state_NJ,0.0,0.0
+zipcode_6410.0,0.0,0.0
+zipcode_6413.0,0.0,0.0
+zipcode_6026.0,0.0,0.0
+zipcode_6029.0,0.0,0.0
+zipcode_6037.0,0.0,0.0
+zipcode_6107.0,0.0,0.0
+zipcode_6401.0,0.0,0.0
+zipcode_6405.0,0.0,0.0
+zipcode_6419.0,0.0,0.0
+zipcode_6437.0,0.0,0.0
+zipcode_6417.0,0.0,0.0
+zipcode_6418.0,0.0,0.0
+zipcode_6443.0,0.0,0.0
+zipcode_3062.0,0.0,0.0
+zipcode_56055.0,0.0,0.0
+zipcode_3101.0,0.0,0.0
+zipcode_7458.0,0.0,0.0
+zipcode_6824.0,0.0,0.0
+zipcode_6779.0,0.0,0.0
+zipcode_6810.0,0.0,0.0
+zipcode_6716.0,0.0,0.0
+zipcode_6762.0,0.0,0.0
+zipcode_6615.0,0.0,0.0
+zipcode_6702.0,0.0,0.0
+zipcode_6514.0,0.0,0.0
+zipcode_6488.0,0.0,0.0
+zipcode_6510.0,0.0,0.0
+zipcode_6492.0,0.0,0.0
+zipcode_6524.0,0.0,0.0
+zipcode_6516.0,0.0,0.0
+zipcode_6484.0,0.0,0.0
+zipcode_6475.0,0.0,0.0
+zipcode_6902.0,0.0,0.0
+city_North Branford,-0.6751169864825443,1.3502339729650885
+zipcode_6471.0,-1.5516759193852976,1.616312069753933
+city_Meriden,-2.699457597605215,22.34378857700243
+fuel_gas,-2.8820274932875236,6.971707735277494
+color_silver,-4.39724401553467,20.785826923436474
+transmission_automatic,-4.819633703635373,13.809227436758416
+city_West Haven,-6.41429906178837,32.78341882055517
+fuel_diesel,-6.6651573819131045,11.04547133960653
+state_CT,-8.917790127822764,15.329181762272311
+color_black,-10.49517126206256,11.382253823095404
+condition_excellent,-16.356689227660127,23.589260285339915
+color_custom,-17.118602716870647,13.977292773967005
+city_Waterbury,-81.30686755385099,153.1919849476514
+color_gray,-184.02180321360137,92.01106958364085
+condition_like_new,-226.44946912734517,113.22660367906441
