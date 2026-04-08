@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import joblib
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import RandomizedSearchCV, KFold
-from matplotlib.ticker import FuncFormatter
+from sklearn.model_selection import TimeSeriesSplit
 
 # ---------------- ENV ----------------
 PROJECT_ID = os.getenv("PROJECT_ID", "")
@@ -135,9 +135,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     # Sort ascending so the OLDEST (first) scrape of a post_id is at the top
     df = df.sort_values("scraped_at_dt_utc", ascending=True)
 
-    # Drop duplicates, keeping ONLY the first time we ever saw this post_id
     orig_count = len(df)
-    df = df.drop_duplicates(subset=["post_id"], keep="first").copy()
     
     logging.info(f"Deduplication: Kept {len(df)} unique cars out of {orig_count} total scrapes based on post_id.")
 
@@ -229,7 +227,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             ("clf", model)
         ])
 
-        cv = KFold(n_splits=3, shuffle=True, random_state=42)
+        cv = TimeSeriesSplit(n_splits=3)
 
         search = RandomizedSearchCV(
             pipe,
@@ -395,7 +393,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         # FIX 1: Generate PDP using a sample of historical TRAINING data, not the tiny holdout data
         # This ensures rare cars/features actually exist in the data we plot
-        X_train_trans = pre.transform(X)
+        X_train_trans = pre.transform(X_hold_trans)
         if scipy.sparse.issparse(X_train_trans):
             X_train_trans = X_train_trans.toarray()
             
@@ -418,17 +416,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                     kind="average",
                     ax=ax
                 )
-
-                # FIX 2: Clean up the X-Axis for Binary (One-Hot Encoded) Categorical Features
-                unique_vals = np.unique(X_pdp_bg[:, idx])
-                if len(unique_vals) <= 2 and set(unique_vals).issubset({0.0, 1.0, 0, 1}):
-                    ax.set_xticks([0, 1])
-                    ax.set_xticklabels(["False (Doesn't Have)", "True (Has)"])
-                    ax.set_xlim(-0.5, 1.5)
-
-                # FIX 3: Convert the Log10 Y-Axis back into Actual Dollar Amounts
-                formatter = FuncFormatter(lambda y, pos: f"${int(10**y):,}")
-                ax.yaxis.set_major_formatter(formatter)
 
                 safe_feat = name_.replace("/", "_").replace(" ", "_")
                 path = f"/tmp/{name}_pdp_{safe_feat}.png"
