@@ -1,0 +1,77 @@
+feature,importance,std
+mileage_num,727.476267531694,730.3143869598708
+age,325.7123810745773,338.2392312614652
+condition_fair,211.07890607030885,244.217736135985
+city_Shelton,87.20394161505419,62.04367217786156
+zipcode_6606.0,29.75128434124813,28.49701882859906
+color_infrequent_sklearn,28.17241549785558,78.90557545839452
+make_model_infrequent_sklearn,23.522830394829498,14.79781079410994
+city_West Haven,16.355109161693598,22.007164451198555
+transmission_automatic,11.513556402553423,14.50854584267926
+transmission_manual,8.278239621590728,17.655085831379107
+color_blue,7.822874934222455,29.34907371963391
+city_Meriden,3.4829302563252442,3.6015784442537613
+color_black,2.741652217262208,3.276864228956546
+city_Stratford,2.027696079581665,3.942425242549076
+zipcode_6524.0,0.0,0.0
+color_green,0.0,0.0
+color_brown,0.0,0.0
+make_model_Subaru_Forester,0.0,0.0
+make_model_Subaru_Outback,0.0,0.0
+make_model_Toyota_Camry,0.0,0.0
+make_model_Nissan_Rogue,0.0,0.0
+color_red,0.0,0.0
+color_grey,0.0,0.0
+city_East Granby,0.0,0.0
+fuel_hybrid,0.0,0.0
+city_Hamden,0.0,0.0
+fuel_electric,0.0,0.0
+condition_infrequent_sklearn,0.0,0.0
+city_Hudson,0.0,0.0
+city_Milford,0.0,0.0
+city_North Haven,0.0,0.0
+city_New Haven,0.0,0.0
+city_Old Saybrook,0.0,0.0
+city_Norwalk,0.0,0.0
+city_Stamford,0.0,0.0
+city_Branford,0.0,0.0
+city_infrequent_sklearn,0.0,0.0
+city_Wallingford,0.0,0.0
+state_NY,0.0,0.0
+city_Bronx,0.0,0.0
+city_Bethany,0.0,0.0
+city_Bridgeport,0.0,0.0
+condition_salvage,0.0,0.0
+fuel_infrequent_sklearn,0.0,0.0
+zipcode_6850.0,0.0,0.0
+zipcode_6516.0,0.0,0.0
+zipcode_6514.0,0.0,0.0
+zipcode_6473.0,0.0,0.0
+zipcode_6510.0,0.0,0.0
+zipcode_6475.0,0.0,0.0
+zipcode_6484.0,0.0,0.0
+zipcode_6492.0,0.0,0.0
+zipcode_6405.0,0.0,0.0
+zipcode_6450.0,0.0,0.0
+zipcode_3051.0,0.0,0.0
+zipcode_6026.0,0.0,0.0
+zipcode_6460.0,0.0,0.0
+state_NH,0.0,0.0
+zipcode_10475.0,0.0,0.0
+state_infrequent_sklearn,0.0,0.0
+zipcode_6902.0,0.0,0.0
+zipcode_6702.0,0.0,0.0
+zipcode_infrequent_sklearn,0.0,0.0
+zipcode_6614.0,0.0,0.0
+state_CT,-3.1190533772196884,9.370286270441811
+condition_excellent,-7.732829915649336,48.029669984282464
+city_North Branford,-9.87490863557473,11.35426677986905
+zipcode_6471.0,-9.967707820917212,9.93243640844249
+condition_good,-10.994933824560576,42.59920465990148
+color_silver,-30.52757419930581,42.84942784341068
+city_Waterbury,-70.93921578494056,147.34919690360204
+fuel_diesel,-75.81393984797378,32.77505368403979
+fuel_gas,-100.61145193194048,38.66281509264706
+color_gray,-105.60139112118081,66.62616343155804
+color_white,-120.10147807917629,115.95296188669145
+condition_like_new,-232.32442077592577,116.65339147997126
