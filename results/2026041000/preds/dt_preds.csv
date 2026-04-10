@@ -1,0 +1,12 @@
+make_model,color,condition,transmission,fuel,city,state,zipcode,age,mileage_num,actual,pred
+Subaru_Impreza Wagon,gray,like_new,automatic,gas,West Haven,CT,,10,59000,13000.0,23232.25
+Volkswagen_Jetta S,blue,excellent,manual,gas,Shelton,Connecticut,,16,190000,3500.0,6573.64
+Chevy_Malibu,silver,good,automatic,gas,Stratford,CT,,15,165000,2999.0,4385.317073170731
+Chevy_3500,white,good,automatic,diesel,North Branford,CT,6471.0,19,150000,5700.0,4385.317073170731
+subaru_legacy,blue,excellent,automatic,gas,Shelton,CT,,8,175000,7200.0,13920.6875
+Subaru_Impreza,silver,excellent,automatic,gas,Shelton,CT,,11,183000,4700.0,6573.64
+Mercedes-Benz_GL450 4MATIC,black,excellent,automatic,gas,Meriden,CT,,11,124948,10950.0,8725.355263157895
+Audi_A5,silver,fair,manual,gas,Waterbury,CT,,17,215000,2500.0,4385.317073170731
+Ford_Mini-T HR Campervan,,new,automatic,gas,Lake Crystal,MN,,1,87,139500.0,40670.53571428572
+toyota_highlander,custom,fair,automatic,gas,East Haven,CT,,23,258000,1800.0,4385.317073170731
+Subaru_Crosstrek,orange,like_new,automatic,gas,Meriden,CT,6450.0,8,124927,11900.0,13920.6875
