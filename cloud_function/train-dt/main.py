@@ -1,4 +1,3 @@
-
 import os, io, json, logging, traceback
 import numpy as np
 import pandas as pd
@@ -84,11 +83,12 @@ def get_feature_names(preprocessor):
             except Exception:
                 names.extend(cols)
     return names
+
 def _read_csv_from_gcs(client: storage.Client, bucket: str, key: str) -> pd.DataFrame:
     b = client.bucket(bucket)
     blob = b.blob(key)
     if not blob.exists():
-        raise FileNotFoundError(f"gs://{bucket}/{key} not found")
+        raise FileNotFoundError("gs://%s/%s not found" % (bucket, key))
     return pd.read_csv(io.BytesIO(blob.download_as_bytes()))
 
 def _write_csv_to_gcs(client: storage.Client, bucket: str, key: str, df: pd.DataFrame):
@@ -108,7 +108,8 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     required = {"scraped_at", "post_id" , "price", "make", "model", "year", "mileage","transmission","color","fuel","city","state","zipcode"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
+        raise ValueError("Missing required columns: %s" % sorted(missing))
+    
     TIMEZONE = "America/New_York"
     # --- Parse timestamps and choose local-day split ---
     dt = pd.to_datetime(df["scraped_at"], errors="coerce", utc=True)
@@ -140,8 +141,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     orig_count = len(df)
     df = df.drop_duplicates(subset=["post_id"], keep="first").copy()
     
-    logging.info(f"Deduplication: Kept {len(df)} unique cars out of {orig_count} total scrapes based on post_id.")
-
+    logging.info("Deduplication: Kept %d unique cars out of %d total scrapes based on post_id." % (len(df), orig_count))
 
     # ---------------------------------------------------------
     # 3. SPLIT DATA (TRAIN ON HISTORY, TEST ON BRAND NEW)
@@ -164,11 +164,14 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
     if len(train_df) < 40:
         return {"status": "noop", "reason": "too few training rows", "train_rows": int(len(train_df))}
     
-
     target = "price_num"
-    cat_cols = ["color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
+    # Safely select categorical columns strictly available in dataframe 
+    cat_cols_candidate = ["color", "condition", "transmission", "fuel", "city", "state", "zipcode"]
+    cat_cols = [c for c in cat_cols_candidate if c in df.columns]
+
     num_cols = ["age", "mileage_num"]
     feats = cat_cols + num_cols + ["make_model"]
+    
     param_grids = {
         "dt": {
             "clf__max_depth": [5, 10, 15, 20, None],
@@ -247,7 +250,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
 
         best_pipe = search.best_estimator_
 
-        logging.info(f"[{name}] Best params: {search.best_params_}")
+        logging.info("[%s] Best params: %s" % (name, search.best_params_))
         
         # Cross-validation MAE (replaces val_mae)
         cv_mae = -search.best_score_
@@ -261,35 +264,29 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             "holdout_mae": hold_mae
         }
 
-
         # ---------------- SAVE MODEL ----------------
-        # FIX: Added name
-        local_model = f"/tmp/{name}.joblib"
+        local_model = "/tmp/%s.joblib" % name
         joblib.dump(best_pipe, local_model)
-        logging.info(f"[{name}] Saved model locally: {local_model}")
+        logging.info("[%s] Saved model locally: %s" % (name, local_model))
+        
         # ---------------- SAVE PREDICTIONS ----------------
         out = X_hold.copy()
         out["actual"] = y_hold
         out["pred"] = hold_preds
-        local_csv = f"/tmp/{name}_preds.csv"
+        local_csv = "/tmp/%s_preds.csv" % name
         out.to_csv(local_csv, index=False)
-        logging.info(f"[{name}] Saved preds locally: {local_csv}")
+        logging.info("[%s] Saved preds locally: %s" % (name, local_csv))
 
         if not dry_run:
-            # FIX: Correctly built GCS paths
-            gcs_model_path = f"{OUTPUT_PREFIX}/{base_path}/models/{name}.joblib"
+            gcs_model_path = "%s/models/%s.joblib" % (base_path, name)
             upload_file(client, local_model, gcs_model_path)
-            logging.info(f"[{name}] Uploaded model to GCS: {gcs_model_path}")
+            logging.info("[%s] Uploaded model to GCS: %s" % (name, gcs_model_path))
 
         if not dry_run:
-            # FIX: Correctly built GCS paths
-            gcs_csv_path = f"{OUTPUT_PREFIX}/{base_path}/preds/{name}_preds.csv"
+            gcs_csv_path = "%s/preds/%s_preds.csv" % (base_path, name)
             upload_file(client, local_csv, gcs_csv_path)
-            logging.info(f"[{name}] Uploaded preds to GCS: {gcs_csv_path}")
+            logging.info("[%s] Uploaded preds to GCS: %s" % (name, gcs_csv_path))
 
-        
-
-        
         # ---------------- PERMUTATION IMPORTANCE ----------------
         clf = best_pipe.named_steps["clf"]
 
@@ -298,7 +295,6 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
             inner_model = clf.regressor_
         else:
             inner_model = clf
-
         
         try:
             pre = best_pipe.named_steps["preprocessor"]
@@ -325,28 +321,27 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                 "std": perm.importances_std
             }).sort_values("importance", ascending=False)
 
-            # ✅ SAVE permutation importance errors
+            # SAVE permutation importance errors
             err_df = pd.DataFrame({
                 "feature": feat_names,
                 "importance_mean": perm.importances_mean,
                 "importance_std": perm.importances_std
             })
 
-            err_local = f"/tmp/{name}_perm_importance.csv"
+            err_local = "/tmp/%s_perm_importance.csv" % name
             err_df.to_csv(err_local, index=False)
 
             if not dry_run:
-                gcs_err_path = f"{OUTPUT_PREFIX}/{base_path}/errors/{name}_perm_importance.csv"
+                gcs_err_path = "%s/errors/%s_perm_importance.csv" % (base_path, name)
                 upload_file(client, err_local, gcs_err_path)
-                logging.info(f"[{name}] Uploaded permutation importance errors: {gcs_err_path}")
+                logging.info("[%s] Uploaded permutation importance errors: %s" % (name, gcs_err_path))
 
         except Exception as e:
-            logging.warning(f"[{name}] Permutation importance failed: {e}")
+            logging.warning("[%s] Permutation importance failed: %s" % (name, e))
             imp_df = pd.DataFrame({"feature": [], "importance": []})
 
-            # ✅ FIX: Moved all of this logic OUT of the except block!
         if imp_df.empty:
-            logging.warning(f"[{name}] No features available for plotting. Skipping.")
+            logging.warning("[%s] No features available for plotting. Skipping." % name)
             continue
             
         agg = imp_df.groupby(
@@ -354,8 +349,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         )["importance"].sum().sort_values(ascending=False)
 
         top_feats = agg.head(3).index.tolist()
-        # FIX: Inserted 'name' and 'top_feats'
-        logging.info(f"[{name}] TOP AGGREGATED FEATURES: {top_feats}")
+        logging.info("[%s] TOP AGGREGATED FEATURES: %s" % (name, top_feats))
 
         # ---------------- PLOT 1: FEATURE IMPORTANCE ----------------
         plt.figure(figsize=(10, 6))
@@ -364,25 +358,24 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
         top_15_imp = top_15_imp.sort_values(by="importance", ascending=True)
             
         plt.barh(top_15_imp["feature"], top_15_imp["importance"], color="skyblue")
-        plt.title(f"Top 15 Feature Importances - {name.upper()}")
+        plt.title("Top 15 Feature Importances - %s" % name.upper())
         plt.xlabel("Importance Score")
         plt.tight_layout()
 
-        fi_local_path = f"/tmp/{name}_feature_importance.png"
+        fi_local_path = "/tmp/%s_feature_importance.png" % name
         plt.savefig(fi_local_path)
         plt.close()
 
         if not dry_run:
-            fi_gcs_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_feature_importance.png"
+            fi_gcs_path = "%s/plots/%s_feature_importance.png" % (base_path, name)
             upload_file(client, fi_local_path, fi_gcs_path)
-            logging.info(f"[{name}] Uploaded Feature Importance Plot to GCS: {fi_gcs_path}")
+            logging.info("[%s] Uploaded Feature Importance Plot to GCS: %s" % (name, fi_gcs_path))
 
        # ---------------- PLOT 2: PDP (Top 3 Features) ----------------
-        
         top_encoded = imp_df.nlargest(3, "importance")["feature"].tolist()
 
         if len(top_encoded) == 0:
-            logging.warning(f"[{name}] No features available for PDP")
+            logging.warning("[%s] No features available for PDP" % name)
             continue
         
         valid_idx = []
@@ -392,7 +385,7 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                 valid_idx.append(feat_names.index(f))
                 valid_names.append(f)
 
-        logging.info(f"[{name}] Generating PDP for exact encoded features: {valid_names}")
+        logging.info("[%s] Generating PDP for exact encoded features: %s" % (name, valid_names))
 
         # FIX 1: Generate PDP using a sample of historical TRAINING data, not the tiny holdout data
         # This ensures rare cars/features actually exist in the data we plot
@@ -427,30 +420,29 @@ def run_once(dry_run: bool = False, max_depth: int = 12, min_samples_leaf: int =
                     ax.set_xticklabels(["False (Doesn't Have)", "True (Has)"])
                     ax.set_xlim(-0.5, 1.5)
 
-                # FIX 3: Convert the Log10 Y-Axis back into Actual Dollar Amounts
-                formatter = FuncFormatter(lambda y, pos: f"${int(10**y):,}")
+                # FIX 3: Convert the Log10 Y-Axis back into Actual Dollar Amounts without f-strings
+                formatter = FuncFormatter(lambda y, pos: "$%s" % format(int(10**y), ","))
                 ax.yaxis.set_major_formatter(formatter)
 
                 safe_feat = name_.replace("/", "_").replace(" ", "_")
-                path = f"/tmp/{name}_pdp_{safe_feat}.png"
+                path = "/tmp/%s_pdp_%s.png" % (name, safe_feat)
 
-                plt.title(f"PDP for {safe_feat} ({name.upper()})")
+                plt.title("PDP for %s (%s)" % (name_, name.upper()))
                 plt.tight_layout()
                 plt.savefig(path, bbox_inches="tight")
                 plt.close(fig)
 
                 if not dry_run:
-                    gcs_pdp_path = f"{OUTPUT_PREFIX}/{base_path}/plots/{name}_pdp_{safe_feat}.png"
+                    gcs_pdp_path = "%s/plots/%s_pdp_%s.png" % (base_path, name, safe_feat)
                     upload_file(client, path, gcs_pdp_path)
-                    logging.info(f"[{safe_feat}] PDP uploaded to GCS: {gcs_pdp_path}")
+                    logging.info("[%s] PDP uploaded to GCS: %s" % (name, gcs_pdp_path))
 
             except Exception as e:
-                logging.warning(f"[{name}] PDP failed for '{name_}': {e}")
+                logging.warning("[%s] PDP failed for '%s': %s" % (name, name_, e))
                 plt.close('all')
     
     return {"status": "ok", "mae": results}
             
-
 
 def train_dt_http(request):
     try:
