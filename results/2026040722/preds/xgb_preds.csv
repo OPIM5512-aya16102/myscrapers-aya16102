@@ -1,8 +1,0 @@
-color,condition,transmission,fuel,city,state,zipcode,age,mileage_num,make_model,actual,pred
-beige,good,automatic,gasoline,Hudson,NH,03051,21,66167,CHEVROLET_EXPRESS 1500,25993.0,25187.25
-silver,fair,manual,gas,Waterbury,CT,06702,17,215000,Audi_A5 Quattro,2500.0,2102.05
-black,excellent,automatic,gas,Meriden,CT,06450,11,124948,Mercedes-Benz_GL 450 4MATIC,10950.0,10172.991
-white,excellent,automatic,gas,East Granby,CT,06026,10,165728,Subaru_Outback,9599.0,9823.46
-custom,fair,automatic,gas,East Haven,CT,06512,23,258000,Toyota_Highlander,1800.0,2786.5767
-blue,excellent,automatic,gas,Shelton,CT,06484,8,175000,Subaru_Legacy 2.5i premium,7200.0,6048.025
-white,good,automatic,diesel,North Branford,CT,06471,19,150000,Chevy_3500,5700.0,9123.675
