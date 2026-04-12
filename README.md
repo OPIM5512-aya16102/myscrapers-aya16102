@@ -31,3 +31,5 @@ You can interactively explore how the models perform, compare error metrics, and
 
 ## 📬 Let's Connect
 Created by **Ahmed Ahmed**. If you have any questions about this project, the GenAI integration, or the GCP deployment pipeline, feel free to reach out!
+
+🔗 **LinkedIn:** [Connect with me on LinkedIn](https://www.linkedin.com/in/ahmed-ahmed-831765190/)
