@@ -1,7 +1,7 @@
 name: Deploy LLM Extractor (CF Gen + Cloud Scheduler)
 run-name: "LLM Extractor deploy by ${{ github.actor }} • ${{ github.ref_name }}"
 
-on:
+#on:
   push:
     branches: [ main ]
     paths:
