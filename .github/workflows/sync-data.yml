@@ -1,7 +1,7 @@
 name: Data Sync ALL Artifacts to Repo
 run-name: Syncing all artifacts for ${{ github.ref_name }} by @${{ github.actor }}
 
-on:
+#on:
   schedule:
     - cron: '45 * * * *'   # every hour at :45
   workflow_dispatch:
